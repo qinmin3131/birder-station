@@ -94,3 +94,17 @@ def test_api_index_rejects_missing_folder(monkeypatch):
 
     assert exc_info.value.status_code == 400
     assert "does not exist" in exc_info.value.detail
+
+
+def test_api_index_uses_default_formats_when_config_missing(tmp_path, monkeypatch):
+    db_path = _create_temp_db(tmp_path)
+    monkeypatch.setattr(web_app, "db_path", Path(db_path))
+    monkeypatch.setattr(web_app, "config", {"paths": {}})
+
+    folder = tmp_path / "photos"
+    folder.mkdir()
+    Image.new("RGB", (100, 100), color="yellow").save(folder / "bird.jpg")
+
+    result = web_app.index_photos(web_app.IndexRequest(folder=str(folder)))
+
+    assert result == {"indexed": 1, "skipped": 0, "errors": 0}

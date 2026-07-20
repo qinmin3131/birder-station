@@ -701,7 +701,8 @@ def index_photos(req: IndexRequest):
     session = get_sqlalchemy_session()
     try:
         repo = PhotoRepository(session)
-        supported_formats = set(config.get("paths", {}).get("supported_formats", []))
+        formats_from_config = config.get("paths", {}).get("supported_formats")
+        supported_formats = set(formats_from_config) if formats_from_config else None
         indexer = PhotoIndexer(repo, supported_formats=supported_formats)
         result = indexer.index_folder_with_stats(folder_path, req.recursive)
         return result
