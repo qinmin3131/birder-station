@@ -43,18 +43,31 @@ recognition:
     assert config["recognition"]["dongniao"]["key"] == "dn-key"
 
 
-def test_validate_paths_config_rejects_non_absolute_required_paths():
+def test_validate_paths_config_rejects_non_absolute_source_path_and_allows_missing_output():
     is_valid, errors = validate_paths_config(
         {
             "paths": {
                 "sources": [{"path": "relative/source"}],
-                "output": {"root_dir": "relative/output"},
             }
         }
     )
 
     assert is_valid is False
     assert any("sources[0].path" in error for error in errors)
+    assert not any("output.root_dir" in error for error in errors)
+
+
+def test_validate_paths_config_rejects_non_absolute_output_root_dir():
+    is_valid, errors = validate_paths_config(
+        {
+            "paths": {
+                "sources": [{"path": "D:/source"}],
+                "output": {"root_dir": "relative/output"},
+            }
+        }
+    )
+
+    assert is_valid is False
     assert any("output.root_dir" in error for error in errors)
 
 

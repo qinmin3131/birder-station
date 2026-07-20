@@ -107,8 +107,8 @@ else:
 # Ensure database directory exists
 db_path.parent.mkdir(parents=True, exist_ok=True)
 
-# Handle output.root_dir - allow empty for first-run setup
-output_root = config['paths']['output'].get('root_dir', '')
+# Handle output.root_dir - allow empty/missing for index-only mode
+output_root = config['paths'].get('output', {}).get('root_dir', '')
 processed_dir = Path(output_root) if output_root else None
 
 logger.info(f"Project Base Directory: {BASE_DIR}")

@@ -42,11 +42,11 @@ def validate_paths_config(config: dict) -> tuple[bool, list]:
         elif not Path(src_path).exists():
             warnings.append(f"sources[0].path 目录不存在（将在首次配置时创建）: {src_path}")
 
-    # 2. 检查 output.root_dir（必填，绝对路径 - 格式检查）
+    # 2. 检查 output.root_dir（新 spec 下为可选；若提供则必须是绝对路径）
     output = paths_conf.get('output', {})
     output_root = output.get('root_dir', '')
     if not output_root:
-        errors.append("output.root_dir 未配置（必填）")
+        warnings.append("output.root_dir 未配置；新规格下照片仅索引不移动，output.root_dir 为可选")
     elif not Path(output_root).is_absolute():
         errors.append(f"output.root_dir 必须是绝对路径: {output_root}")
     elif not Path(output_root).exists():
