@@ -11,6 +11,8 @@ Implemented the web-based photo indexing page for the birder-station project, in
 ## Commits
 
 ```
+2abb02b 修复: 索引 API 在配置缺失 supported_formats 时使用默认格式
+ad48b65 报告: 添加 Web 照片索引页实现报告与设计文档
 fc4c8b5 UI: 添加 /admin/index 索引页面
 6af1e32 功能: 添加照片索引 API 与 SQLAlchemy 会话辅助
 9cadb74 功能: 为 PhotoIndexer 添加索引统计方法
@@ -28,6 +30,7 @@ fc4c8b5 UI: 添加 /admin/index 索引页面
    - Added `get_sqlalchemy_session()` helper to create a SQLAlchemy session from the configured `db_path`.
    - Added `POST /api/index` endpoint that validates the folder, creates a `PhotoRepository` + `PhotoIndexer`, and returns the indexing stats.
    - Added `GET /admin/index` route that renders the new indexing page.
+   - Fixed fallback: when `config["paths"]["supported_formats"]` is missing, `PhotoIndexer` uses its default supported formats instead of an empty set.
 
 3. **`src/web/templates/admin_index.html`** (new)
    - Bootstrap page with folder selection, recursive checkbox, and Start Indexing button.
@@ -46,6 +49,7 @@ fc4c8b5 UI: 添加 /admin/index 索引页面
      - `POST /api/index` counts indexed and skipped files correctly.
      - Duplicate photos are skipped on second indexing.
      - Missing folder returns `400 Bad Request`.
+     - Missing `supported_formats` in config falls back to default formats.
 
 ## Test Evidence
 
@@ -53,14 +57,14 @@ Focused test:
 
 ```
 python -m pytest tests/test_web_index.py -v
-4 passed
+5 passed
 ```
 
 Full test suite:
 
 ```
 python -m pytest -v
-254 passed, 1 skipped
+255 passed, 1 skipped
 ```
 
 ## Concerns / Issues
