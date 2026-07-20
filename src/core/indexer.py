@@ -2,10 +2,23 @@ import hashlib
 import logging
 from pathlib import Path
 from typing import List, Set, Optional
+
+import numpy as np
+from PIL import Image
+
 from src.db.models import Photo
 from src.db.repository import PhotoRepository
 
+try:
+    import rawpy
+    RAWPY_AVAILABLE = True
+except ImportError:
+    rawpy = None
+    RAWPY_AVAILABLE = False
+    logging.warning("rawpy not installed; RAW decoding disabled")
+
 SUPPORTED_FORMATS = {".jpg", ".jpeg", ".nef", ".orf", ".cr2", ".cr3", ".arw", ".dng", ".rw2"}
+RAW_FORMATS = {".nef", ".orf", ".cr2", ".cr3", ".arw", ".dng", ".rw2"}
 
 logger = logging.getLogger(__name__)
 
@@ -46,3 +59,18 @@ class PhotoIndexer:
             except Exception as e:
                 logger.error(f"Failed to index {path}: {e}")
         return photos
+
+
+def decode_raw(path: Path) -> np.ndarray:
+    if not RAWPY_AVAILABLE:
+        raise RuntimeError("rawpy is not installed")
+    with rawpy.imread(str(path)) as raw:
+        rgb = raw.postprocess()
+    return rgb
+
+
+def load_image(path: Path) -> np.ndarray:
+    ext = path.suffix.lower()
+    if ext in RAW_FORMATS:
+        return decode_raw(path)
+    return np.array(Image.open(path))
