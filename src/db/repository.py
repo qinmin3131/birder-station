@@ -10,6 +10,9 @@ class PhotoRepository:
     def get_by_id(self, photo_id: int) -> Optional[Photo]:
         return self.session.query(Photo).filter(Photo.id == photo_id).first()
 
+    def get_by_hash(self, file_hash: str) -> Optional[Photo]:
+        return self.session.query(Photo).filter(Photo.file_hash == file_hash).first()
+
     def add(self, photo: Photo) -> Photo:
         self.session.add(photo)
         self.session.commit()
