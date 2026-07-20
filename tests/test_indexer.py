@@ -61,3 +61,17 @@ def test_index_folder_respects_supported_formats(repo, tmp_path):
 
     assert len(photos) == 1
     assert photos[0].filename == "bird.jpg"
+
+
+def test_index_folder_with_stats_counts_indexed_and_skipped(repo, tmp_path):
+    indexer = PhotoIndexer(repo)
+
+    img_path = tmp_path / "bird.jpg"
+    Image.new("RGB", (100, 100), color="green").save(img_path)
+    duplicate = tmp_path / "bird_copy.jpg"
+    Image.new("RGB", (100, 100), color="green").save(duplicate)
+    (tmp_path / "notes.txt").write_text("not a photo")
+
+    result = indexer.index_folder_with_stats(tmp_path)
+
+    assert result == {"indexed": 1, "skipped": 1, "errors": 0}

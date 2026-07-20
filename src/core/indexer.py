@@ -60,6 +60,36 @@ class PhotoIndexer:
                 logger.error(f"Failed to index {path}: {e}")
         return photos
 
+    def index_folder_with_stats(self, folder: Path, recursive: bool = True) -> dict:
+        indexed = 0
+        skipped = 0
+        errors = 0
+        glob_pattern = "**/*" if recursive else "*"
+        for path in folder.glob(glob_pattern):
+            if not path.is_file():
+                continue
+            if path.suffix.lower() not in self.supported_formats:
+                continue
+            try:
+                file_hash = self._file_hash(path)
+                existing = self.repo.get_by_hash(file_hash)
+                if existing is not None:
+                    logger.info(f"Skipping duplicate photo: {path} (hash {file_hash[:8]}...)")
+                    skipped += 1
+                    continue
+                photo = Photo(
+                    file_path=str(path),
+                    filename=path.name,
+                    original_path=str(path),
+                    file_hash=file_hash,
+                )
+                self.repo.add(photo)
+                indexed += 1
+            except Exception as e:
+                logger.error(f"Failed to index {path}: {e}")
+                errors += 1
+        return {"indexed": indexed, "skipped": skipped, "errors": errors}
+
 
 def decode_raw(path: Path) -> np.ndarray:
     if not RAWPY_AVAILABLE:
