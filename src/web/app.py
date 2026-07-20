@@ -285,10 +285,16 @@ def index(request: Request, q: str = "", filter: str = "", date: str = "", limit
             "prev_offset": prev_offset,
         },
     )
-
 @app.get("/admin", response_class=HTMLResponse)
 def admin_dashboard(request: Request):
     return admin_service.admin_dashboard(request, templates, is_paths_configured, get_stats)
+
+
+@app.get("/admin/index", response_class=HTMLResponse)
+def admin_index_page(request: Request):
+    """Render the photo indexing page."""
+    return templates.TemplateResponse("admin_index.html", {"request": request})
+
 
 def get_stats():
     return admin_service.get_stats(get_db_conn)

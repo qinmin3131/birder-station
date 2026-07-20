@@ -1,4 +1,5 @@
 from pathlib import Path
+from unittest.mock import ANY
 
 import pytest
 from PIL import Image
@@ -14,6 +15,32 @@ def _create_temp_db(tmp_path: Path) -> str:
     engine = create_engine(f"sqlite:///{db_path}")
     Base.metadata.create_all(engine)
     return str(db_path)
+
+
+class TemplateRecorder:
+    def __init__(self):
+        self.calls = []
+
+    def TemplateResponse(self, template_name=None, context=None, *, name=None, **kwargs):
+        if name is not None:
+            template_name = name
+        if context is None:
+            context = {}
+        payload = {"template": template_name, "context": context}
+        self.calls.append(payload)
+        return payload
+
+
+def test_admin_index_page_renders_template(monkeypatch):
+    templates = TemplateRecorder()
+    monkeypatch.setattr(web_app, "templates", templates)
+
+    result = web_app.admin_index_page(request=object())
+
+    assert result == {
+        "template": "admin_index.html",
+        "context": {"request": ANY},
+    }
 
 
 def test_api_index_counts_indexed_and_skipped(tmp_path, monkeypatch):

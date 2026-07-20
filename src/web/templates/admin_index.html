@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>飞羽志 WingScribe - Index Photos</title>
+    <link rel="icon" type="image/x-icon" href="/lib/favicon.ico">
+    <link href="/lib/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.bootcdn.net/ajax/libs/bootstrap-icons/1.11.3/font/bootstrap-icons.min.css">
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg shadow-sm" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+        <div class="container">
+            <a class="navbar-brand fw-bold text-white" href="/">
+                <span style="font-size: 1.3em;">🕊️</span> 飞羽志 <span class="opacity-75">| WingScribe</span>
+            </a>
+            <div class="navbar-nav">
+                <a class="nav-link text-white" href="/">返回画廊</a>
+                <a class="nav-link text-white" href="/admin">管理</a>
+                <a class="nav-link text-white" href="/settings"><i class="bi bi-gear-fill"></i> 配置</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <h2>Index Photos</h2>
+        <p class="text-muted">选择文件夹，将照片索引到数据库。重复的哈希值会被跳过。</p>
+
+        <div class="card">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0">Folder Indexing</h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label for="folder-path" class="form-label">目标文件夹</label>
+                    <div class="input-group">
+                        <input type="text" class="form-control" id="folder-path" placeholder="点击右侧按钮选择文件夹..." readonly>
+                        <button class="btn btn-outline-secondary" type="button" id="browse-btn">
+                            <i class="bi bi-folder"></i> Browse
+                        </button>
+                    </div>
+                </div>
+
+                <div class="mb-3 form-check">
+                    <input type="checkbox" class="form-check-input" id="recursive" checked>
+                    <label class="form-check-label" for="recursive">Recursive indexing (include subfolders)</label>
+                </div>
+
+                <button class="btn btn-primary" id="start-btn" disabled>
+                    <i class="bi bi-play-fill"></i> Start Indexing
+                </button>
+
+                <div id="results" class="mt-4" style="display: none;">
+                    <h5>Results</h5>
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <div class="card text-center bg-light">
+                                <div class="card-body">
+                                    <h3 class="mb-0" id="indexed-count">0</h3>
+                                    <small class="text-muted">Indexed</small>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="card text-center bg-light">
+                                <div class="card-body">
+                                    <h3 class="mb-0" id="skipped-count">0</h3>
+                                    <small class="text-muted">Skipped</small>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="card text-center bg-light">
+                                <div class="card-body">
+                                    <h3 class="mb-0" id="errors-count">0</h3>
+                                    <small class="text-muted">Errors</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="error-alert" class="alert alert-danger mt-3" role="alert" style="display: none;"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/lib/js/bootstrap.bundle.min.js"></script>
+    <script>
+        const folderInput = document.getElementById('folder-path');
+        const browseBtn = document.getElementById('browse-btn');
+        const startBtn = document.getElementById('start-btn');
+        const resultsDiv = document.getElementById('results');
+        const errorAlert = document.getElementById('error-alert');
+
+        browseBtn.addEventListener('click', async () => {
+            errorAlert.style.display = 'none';
+            try {
+                const response = await fetch(
+                    '/api/config/browse_folder?title=' + encodeURIComponent('选择要索引的文件夹') +
+                    '&initial_path=' + encodeURIComponent(folderInput.value || '')
+                , { method: 'POST' });
+                const data = await response.json();
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+                if (data.path) {
+                    folderInput.value = data.path;
+                    startBtn.disabled = false;
+                }
+            } catch (err) {
+                errorAlert.textContent = 'Failed to open folder dialog: ' + err.message;
+                errorAlert.style.display = 'block';
+            }
+        });
+
+        startBtn.addEventListener('click', async () => {
+            const folder = folderInput.value.trim();
+            if (!folder) {
+                errorAlert.textContent = 'Please select a folder first.';
+                errorAlert.style.display = 'block';
+                return;
+            }
+
+            errorAlert.style.display = 'none';
+            startBtn.disabled = true;
+            startBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Indexing...';
+
+            try {
+                const response = await fetch('/api/index', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        folder: folder,
+                        recursive: document.getElementById('recursive').checked
+                    })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.detail || 'Indexing failed');
+                }
+
+                document.getElementById('indexed-count').textContent = data.indexed || 0;
+                document.getElementById('skipped-count').textContent = data.skipped || 0;
+                document.getElementById('errors-count').textContent = data.errors || 0;
+                resultsDiv.style.display = 'block';
+            } catch (err) {
+                errorAlert.textContent = 'Indexing failed: ' + err.message;
+                errorAlert.style.display = 'block';
+            } finally {
+                startBtn.disabled = false;
+                startBtn.innerHTML = '<i class="bi bi-play-fill"></i> Start Indexing';
+            }
+        });
+    </script>
+</body>
+</html>
