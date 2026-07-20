@@ -12,6 +12,8 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 from typing import Optional, List
 
 # Add project root to path for imports
@@ -21,6 +23,8 @@ sys.path.append(str(BASE_DIR))
 from src.metadata.exif_writer import ExifWriter
 from src.utils.config_loader import load_config, validate_paths_config
 from src.core.io.path_generator import PathGenerator
+from src.core.indexer import PhotoIndexer
+from src.db.repository import PhotoRepository
 from src.web.routes.recognition import router as recognition_router
 from src.web import task_manager as task_manager_module
 from src.web.task_manager import TaskManager as ExtractedTaskManager
@@ -143,10 +147,16 @@ def init_app_db():
 
 def create_db_manager():
     return path_helpers.create_db_manager(db_path, source_dir, processed_dir)
-
 # --- Helper ---
 def get_db_conn():
     return path_helpers.get_db_conn(db_path)
+
+
+def get_sqlalchemy_session():
+    """Create a SQLAlchemy session bound to the configured database."""
+    engine = create_engine(f"sqlite:///{db_path}")
+    return sessionmaker(bind=engine)()
+
 
 def resolve_web_path(original_path_str: str) -> Optional[str]:
     """Resolves raw file path to /raw/... URL"""
@@ -178,6 +188,11 @@ class StartPipelineRequest(BaseModel):
 
 class StartPipelineByFoldersRequest(BaseModel):
     paths: List[str]
+    recursive: bool = True
+
+
+class IndexRequest(BaseModel):
+    folder: str
     recursive: bool = True
 
 # --- Routes ---
@@ -669,7 +684,30 @@ async def browse_file_api(title: str = "选择文件", initial_path: str = "", f
     except Exception as e:
         return {"error": str(e), "path": None}
 
+
+@app.post("/api/index")
+def index_photos(req: IndexRequest):
+    """Index photos from a selected folder into the database."""
+    folder_path = Path(req.folder)
+    if not folder_path.exists() or not folder_path.is_dir():
+        raise HTTPException(status_code=400, detail="Folder does not exist or is not a directory")
+
+    session = get_sqlalchemy_session()
+    try:
+        repo = PhotoRepository(session)
+        supported_formats = set(config.get("paths", {}).get("supported_formats", []))
+        indexer = PhotoIndexer(repo, supported_formats=supported_formats)
+        result = indexer.index_folder_with_stats(folder_path, req.recursive)
+        return result
+    except Exception as e:
+        logger.error(f"Indexing failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        session.close()
+
+
 if __name__ == "__main__":
+
     import argparse
     import uvicorn
     import subprocess
