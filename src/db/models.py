@@ -1,8 +1,38 @@
-from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Boolean, ForeignKey, JSON, Text
+from sqlalchemy import create_engine, inspect, Column, Integer, String, Float, DateTime, Boolean, ForeignKey, JSON, Text, text
 from sqlalchemy.orm import declarative_base, relationship
 from datetime import datetime
 
 Base = declarative_base()
+
+
+def init_database(engine):
+    """Initialize or migrate the database schema for SQLAlchemy models.
+
+    Adds missing columns to the existing `photos` table (if any) and creates
+    new tables required by the new data layer.
+    """
+    inspector = inspect(engine)
+
+    if inspector.has_table("photos"):
+        existing_columns = {c["name"] for c in inspector.get_columns("photos")}
+        missing_columns = [
+            ("captured_at", "DATETIME"),
+            ("latitude", "FLOAT"),
+            ("longitude", "FLOAT"),
+            ("is_selected", "BOOLEAN DEFAULT 0"),
+            ("rating", "INTEGER"),
+            ("quality_score", "INTEGER"),
+            ("quality_details", "TEXT"),
+            ("created_at", "DATETIME DEFAULT CURRENT_TIMESTAMP"),
+        ]
+        for col_name, col_type in missing_columns:
+            if col_name not in existing_columns:
+                with engine.begin() as conn:
+                    conn.execute(
+                        text(f"ALTER TABLE photos ADD COLUMN {col_name} {col_type}")
+                    )
+
+    Base.metadata.create_all(engine)
 
 
 class Species(Base):

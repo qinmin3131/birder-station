@@ -24,6 +24,7 @@ from src.metadata.exif_writer import ExifWriter
 from src.utils.config_loader import load_config, validate_paths_config
 from src.core.io.path_generator import PathGenerator
 from src.core.indexer import PhotoIndexer
+from src.db.models import init_database as init_sqlalchemy_db
 from src.db.repository import PhotoRepository
 from src.web.routes.recognition import router as recognition_router
 from src.web import task_manager as task_manager_module
@@ -142,6 +143,11 @@ def init_app_db():
         mgr.close()
         del mgr
         gc.collect()
+
+        # Initialize/migrate SQLAlchemy schema on top of the existing database
+        engine = create_engine(f"sqlite:///{db_path}")
+        init_sqlalchemy_db(engine)
+        engine.dispose()
     except Exception as e:
         logger.error(f"Startup DB Initialization failed: {e}")
 
