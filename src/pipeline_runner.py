@@ -534,6 +534,9 @@ class WingScribePipeline:
             base = Path(entry.name).stem
             ext = Path(entry.name).suffix
             current_filename = f"{base}_{i_det+1}{ext}"
+        # Normalize archived image to JPEG regardless of original format
+        if not current_filename.lower().endswith(('.jpg', '.jpeg')):
+            current_filename = Path(current_filename).with_suffix('.jpg').name
 
         final_path = self.path_generator.generate_path(gen_meta, current_filename)
         Path(final_path).parent.mkdir(parents=True, exist_ok=True)
@@ -606,72 +609,88 @@ class WingScribePipeline:
         local_source_path = provider.get_local_path(entry.path)
         if not local_source_path: return
 
-        # 2. Detect (Thread-safe if YOLO is)
-        # Note: YOLO instantiation might need lock if not thread-safe, but predict is usually ok
+        decoded_temp_path = None
         try:
-            detections = self.detector.detect(local_source_path)
-        except Exception as e:
-            logging.error(f"Detection failed for {entry.name}: {e}")
-            return
-            
-        if not detections: return
-        
-        # Init recognizer if needed (double check locking if lazily init)
-        if self.recognizer is None: 
-            with self.batch_lock:
-                if self.recognizer is None: self._init_recognizer()
+            # For RAW formats, decode to a temporary JPEG first
+            if ImageProcessor.is_raw(local_source_path):
+                temp_dir = Path(self.output_root) / "temp"
+                temp_dir.mkdir(parents=True, exist_ok=True)
+                decoded_temp_path = ImageProcessor.decode_raw_to_temp_jpg(local_source_path, str(temp_dir))
+                detection_input_path = decoded_temp_path
+            else:
+                detection_input_path = local_source_path
 
-        # 3. Candidate labels for this image only.
-        location_tag = meta.get('location_tag', 'Unknown')
-        candidates = self._select_candidate_labels(location_tag)
+            # 2. Detect (Thread-safe if YOLO is)
+            try:
+                detections = self.detector.detect(detection_input_path)
+            except Exception as e:
+                logging.error(f"Detection failed for {entry.name}: {e}")
+                return
 
-        # 4. Crop & recognize as an image-local batch.
-        img_width, img_height = 0, 0
-        try:
-            from PIL import Image
-            with Image.open(local_source_path) as tmp_img:
-                img_width, img_height = tmp_img.size
-        except: pass
+            if not detections: return
 
-        image_batch_items = []
+            # Init recognizer if needed (double check locking if lazily init)
+            if self.recognizer is None:
+                with self.batch_lock:
+                    if self.recognizer is None: self._init_recognizer()
 
-        for i, (box, score) in enumerate(detections):
-            # Use output_root for temp directory (which is now resolved to absolute path)
-            temp_dir = Path(self.output_root) / "temp"
-            temp_dir.mkdir(parents=True, exist_ok=True)
-            temp_crop_path = temp_dir / f"temp_{entry.name}_{i}.jpg" 
-            
-            success = ImageProcessor.crop_and_resize(
-                local_source_path, box, str(temp_crop_path), 
-                target_size=self.config['processing']['target_size'],
-                padding=self.config['processing']['crop_padding']
-            )
-            
-            if success:
-                # 5. Blur detection (quality check)
-                blur_threshold = self.config.get('processing', {}).get('blur_threshold', 40.0)
-                if blur_threshold > 0:
-                    blur_score = QualityChecker.calculate_blur_score(str(temp_crop_path))
-                    if blur_score < blur_threshold:
-                        logging.info(f"[Quality] blur_score={blur_score:.1f} < {blur_threshold} SKIP - {temp_crop_path.name}")
-                        try:
-                            os.remove(str(temp_crop_path))
-                        except:
-                            pass
-                        continue
+            # 3. Candidate labels for this image only.
+            location_tag = meta.get('location_tag', 'Unknown')
+            candidates = self._select_candidate_labels(location_tag)
 
-                image_batch_items.append({
-                    'entry': entry,
-                    'meta': meta,
-                    'crop_path': str(temp_crop_path),
-                    'file_hash': file_hash,
-                    'width': img_width,
-                    'height': img_height,
-                    'detection_index': i,
-                    'detections_count': len(detections)
-                })
+            # 4. Crop & recognize as an image-local batch.
+            img_width, img_height = 0, 0
+            try:
+                from PIL import Image
+                with Image.open(detection_input_path) as tmp_img:
+                    img_width, img_height = tmp_img.size
+            except: pass
 
-        self._recognize_batch(image_batch_items, candidates)
+            image_batch_items = []
+
+            for i, (box, score) in enumerate(detections):
+                temp_dir = Path(self.output_root) / "temp"
+                temp_dir.mkdir(parents=True, exist_ok=True)
+                temp_crop_path = temp_dir / f"temp_{entry.name}_{i}.jpg"
+
+                success = ImageProcessor.crop_and_resize(
+                    detection_input_path, box, str(temp_crop_path),
+                    target_size=self.config['processing']['target_size'],
+                    padding=self.config['processing']['crop_padding']
+                )
+
+                if success:
+                    # 5. Blur detection (quality check)
+                    blur_threshold = self.config.get('processing', {}).get('blur_threshold', 40.0)
+                    if blur_threshold > 0:
+                        blur_score = QualityChecker.calculate_blur_score(str(temp_crop_path))
+                        if blur_score < blur_threshold:
+                            logging.info(f"[Quality] blur_score={blur_score:.1f} < {blur_threshold} SKIP - {temp_crop_path.name}")
+                            try:
+                                os.remove(str(temp_crop_path))
+                            except:
+                                pass
+                            continue
+
+                    image_batch_items.append({
+                        'entry': entry,
+                        'meta': meta,
+                        'crop_path': str(temp_crop_path),
+                        'file_hash': file_hash,
+                        'width': img_width,
+                        'height': img_height,
+                        'detection_index': i,
+                        'detections_count': len(detections)
+                    })
+
+            self._recognize_batch(image_batch_items, candidates)
+        finally:
+            # Clean up the temporary decoded JPEG for RAW files
+            if decoded_temp_path and Path(decoded_temp_path).exists():
+                try:
+                    os.remove(decoded_temp_path)
+                except Exception:
+                    pass
 
     def run(self, start_date: str = None, end_date: str = None, existing_hashes: set = None):
         t_start = time.time()
@@ -740,6 +759,8 @@ class WingScribePipeline:
 
                 # 收集有效的图片文件并统计总数
                 valid_entries = []
+                supported_formats = self.config.get('paths', {}).get('supported_formats', ['.jpg', '.jpeg'])
+                supported_suffixes = tuple(fmt.lower() for fmt in supported_formats)
                 for entry in iterator:
                     is_dir = entry.is_dir() if callable(entry.is_dir) else entry.is_dir
                     if is_dir: continue
@@ -760,7 +781,7 @@ class WingScribePipeline:
                         except:
                             pass
 
-                    if not entry_name.lower().endswith(('.jpg', '.jpeg')):
+                    if not entry_name.lower().endswith(supported_suffixes):
                         continue
 
                     valid_entries.append((entry, entry_path))
@@ -1024,12 +1045,17 @@ class WingScribePipeline:
             logging.warning(f"Error scanning folder {folder_path}: {e}")
 
 if __name__ == "__main__":
-    config_path = "config/settings.yaml"
+    import argparse
+    parser = argparse.ArgumentParser(description="Run WingScribe pipeline")
+    parser.add_argument("--config", default="config/settings.yaml", help="Path to settings YAML")
+    args = parser.parse_args()
+
+    config_path = args.config
     config = load_config(config_path)
-    
+
     if not check_system_dependencies(config):
         logging.error("System check failed. Please fix the issues above and restart.")
         sys.exit(1)
-        
+
     runner = WingScribePipeline(config_path)
     runner.run()

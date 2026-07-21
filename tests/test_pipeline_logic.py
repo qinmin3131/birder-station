@@ -517,3 +517,181 @@ def test_run_by_folders_stops_submitting_new_tasks_when_stop_requested(tmp_path,
     assert processed == ["a.jpg"]
     assert history[0]["processed_count"] == 1
     assert history[0]["status"] == "Stopped"
+
+
+def test_run_accepts_configured_raw_formats(tmp_path, monkeypatch):
+    """Pipeline 应该处理 supported_formats 中配置的 RAW 格式。"""
+    source_root = tmp_path / "source"
+    source_root.mkdir()
+    orf_file = source_root / "test.orf"
+    jpg_file = source_root / "test.jpg"
+    txt_file = source_root / "note.txt"
+    orf_file.write_bytes(b"fake orf")
+    jpg_file.write_bytes(b"j")
+    txt_file.write_text("x", encoding="utf-8")
+
+    pipeline = MockPipeline()
+    pipeline.config = {
+        "paths": {
+            "sources": [{"path": str(source_root), "recursive": False, "enabled": True}],
+            "supported_formats": [".jpg", ".jpeg", ".orf"],
+        }
+    }
+    pipeline.source_dir = str(source_root)
+    pipeline.output_root = ""
+    pipeline.total_files = 0
+    pipeline.processed_count = 0
+    pipeline._progress_callback = None
+    pipeline.existing_hashes = set()
+    recorded = []
+    pipeline.process_image = lambda provider, entry, meta: recorded.append(entry.name)
+    history = []
+    pipeline.db = SimpleNamespace(
+        get_all_hashes=lambda: set(),
+        add_scan_history=lambda record: history.append(record),
+    )
+
+    class FakeProvider:
+        def __init__(self, base_dir):
+            self.base_dir = base_dir
+        def exists(self, path): return True
+        def get_local_path(self, path): return path
+        def list_dir(self, path, recursive=False):
+            return [_make_entry(orf_file), _make_entry(jpg_file), _make_entry(txt_file)]
+
+    class FakeParser:
+        def __init__(self, source_root_abs, structure_pattern): pass
+        def parse(self, entry_path): return {"captured_date": "20260320", "location_tag": "Beijing"}
+
+    class ImmediateExecutor:
+        def __init__(self, max_workers): self.max_workers = max_workers
+        def __enter__(self): return self
+        def __exit__(self, exc_type, exc, tb): return False
+        def submit(self, fn, *args, **kwargs):
+            fn(*args, **kwargs)
+            return SimpleNamespace(done=lambda: True)
+
+    monkeypatch.setattr("src.pipeline_runner.LocalProvider", FakeProvider)
+    monkeypatch.setattr("src.pipeline_runner.PathParser", FakeParser)
+    monkeypatch.setattr("src.pipeline_runner.ThreadPoolExecutor", ImmediateExecutor)
+    monkeypatch.setattr("src.pipeline_runner.wait", lambda futures, timeout=None: (list(futures), []))
+
+    pipeline.run()
+
+    assert recorded == ["test.orf", "test.jpg"]
+    assert pipeline.total_files == 2
+
+
+def test_process_image_decodes_raw_to_temp_jpg_before_detection(tmp_path, monkeypatch):
+    """RAW 文件应该先解码为临时 JPG，再用 YOLO 检测和裁剪。"""
+    source_root = tmp_path / "source"
+    source_root.mkdir()
+    raw_path = source_root / "bird.orf"
+    raw_path.write_bytes(b"fake raw")
+    decoded_jpg = tmp_path / "bird_decoded.jpg"
+    Image.new("RGB", (10, 10), color="white").save(decoded_jpg)
+
+    class FakeDetector:
+        def detect(self, image_path):
+            detections.append(image_path)
+            return [([0, 0, 5, 5], 0.9)]
+
+    pipeline = MockPipeline()
+    pipeline.existing_hashes = set()
+    pipeline.db = SimpleNamespace(check_hash_exists=lambda _: False)
+    pipeline._detector = FakeDetector()
+    pipeline._detector_loaded = True
+    pipeline._detector_lock = threading.Lock()
+    pipeline.recognizer = object()
+    pipeline.batch_lock = threading.Lock()
+    pipeline.output_root = str(tmp_path / "out")
+    Path(pipeline.output_root).mkdir(parents=True, exist_ok=True)
+    pipeline.config = {
+        "processing": {"target_size": 224, "crop_padding": 0, "blur_threshold": 0},
+        "recognition": {"top_k": 5},
+    }
+
+    detections = []
+    cropped_sources = []
+    decode_calls = []
+
+    def fake_decode(raw_path_arg, temp_dir_arg):
+        decode_calls.append((raw_path_arg, temp_dir_arg))
+        return str(decoded_jpg)
+
+    def fake_crop(src, box, dest, target_size, padding):
+        cropped_sources.append(src)
+        Path(dest).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy(src, dest)
+        return True
+
+    fake_image_processor = type("FakeImageProcessor", (), {
+        "is_raw": staticmethod(lambda p: Path(p).suffix.lower() == ".orf"),
+        "decode_raw_to_temp_jpg": staticmethod(fake_decode),
+        "crop_and_resize": staticmethod(fake_crop),
+    })
+
+    fake_quality_checker = type("FakeQualityChecker", (), {
+        "calculate_blur_score": staticmethod(lambda p: 100.0)
+    })
+
+    monkeypatch.setattr("src.pipeline_runner.ImageProcessor", fake_image_processor)
+    monkeypatch.setattr("src.pipeline_runner.QualityChecker", fake_quality_checker)
+
+    captured = []
+    pipeline._select_candidate_labels = lambda location_tag: ["label"]
+    pipeline._recognize_batch = lambda items, labels: captured.append((items, labels))
+
+    provider = LocalProvider(str(source_root))
+    entry = SimpleNamespace(path=str(raw_path), name=raw_path.name, size=raw_path.stat().st_size)
+
+    pipeline.process_image(provider, entry, {"location_tag": "Beijing", "captured_date": "20260320"})
+
+    assert len(decode_calls) == 1
+    assert Path(decode_calls[0][0]).name == "bird.orf"
+    assert len(detections) == 1
+    assert Path(detections[0]).name == "bird_decoded.jpg"
+    assert len(cropped_sources) == 1
+    assert Path(cropped_sources[0]).name == "bird_decoded.jpg"
+    assert len(captured) == 1
+
+
+def test_archive_item_normalizes_processed_extension_to_jpg(tmp_path):
+    """处理后的裁剪图应该统一保存为 JPG，无论原始文件是什么格式。"""
+    pipeline = MockPipeline()
+    pipeline.output_root = str(tmp_path / "out")
+    Path(pipeline.output_root).mkdir(parents=True, exist_ok=True)
+    pipeline.db = SimpleNamespace(
+        get_bird_info=lambda sci: {"chinese_name": "麻雀"},
+        add_photo_record=lambda **kwargs: None,
+    )
+    pipeline.exif_writer = SimpleNamespace(write_metadata=lambda path, meta: None)
+    pipeline.path_generator = type("FakePathGenerator", (), {
+        "generate_path": staticmethod(lambda meta, filename: str(tmp_path / "out" / filename))
+    })()
+
+    crop_path = tmp_path / "out" / "temp_test.ORF_0.jpg"
+    crop_path.parent.mkdir(parents=True, exist_ok=True)
+    Image.new("RGB", (10, 10), color="white").save(crop_path)
+
+    entry = SimpleNamespace(path="D:/照片/test.ORF", name="test.ORF")
+    item = {
+        "entry": entry,
+        "meta": {"captured_date": "20260320", "location_tag": "Beijing", "source_structure": "."},
+        "crop_path": str(crop_path),
+        "file_hash": "hash",
+        "width": 100,
+        "height": 100,
+        "detection_index": 0,
+        "detections_count": 1,
+    }
+
+    pipeline._archive_item(
+        item,
+        [{"scientific_name": "Passer montanus", "confidence": 0.95}],
+        alt_threshold=70,
+        low_conf_threshold=60,
+    )
+
+    assert (tmp_path / "out" / "test.jpg").exists()
+    assert not (tmp_path / "out" / "test.ORF").exists()
