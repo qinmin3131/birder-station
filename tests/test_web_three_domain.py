@@ -131,6 +131,9 @@ def test_gallery_page_renders_template(tmp_path, monkeypatch):
             "selected_species": [],
             "selected_families": [],
             "selected_locations": [],
+            "selected_level1": [],
+            "selected_level2": [],
+            "selected_level3": [],
             "limit": 50,
             "offset": 0,
             "total_count": 0,
@@ -138,6 +141,9 @@ def test_gallery_page_renders_template(tmp_path, monkeypatch):
             "available_species": [],
             "available_families": [],
             "available_locations": [],
+            "available_level1": [],
+            "available_level2": [],
+            "available_level3": [],
             "base_query": "",
             "has_next": False,
             "has_prev": False,
@@ -465,3 +471,60 @@ def test_write_gallery_metadata_api(tmp_path, monkeypatch):
     assert result["status"] == "success"
     assert result["total"] == 2
     assert result["success_count"] == 2
+
+
+def test_gallery_page_filters_cascade_locations(tmp_path, monkeypatch):
+    db_path = _create_temp_db(tmp_path)
+    monkeypatch.setattr(web_app, "db_path", Path(db_path))
+    session, _ = _create_session(db_path)
+    session.add(Photo(file_path="a.jpg", filename="a.jpg", location_level1="福建", location_level2="福州", location_level3="森林公园"))
+    session.add(Photo(file_path="b.jpg", filename="b.jpg", location_level1="福建", location_level2="厦门", location_level3="鼓浪屿"))
+    session.add(Photo(file_path="c.jpg", filename="c.jpg", location_level1="北京", location_level2="海淀区", location_level3="玉渊潭公园"))
+    session.commit()
+    session.close()
+
+    templates = TemplateRecorder()
+    monkeypatch.setattr(web_app, "templates", templates)
+
+    web_app.gallery_page(
+        request=object(),
+        q="",
+        view="",
+        filter="",
+        date="",
+        date_from="",
+        date_to="",
+        species=[""],
+        families=[""],
+        locations=[""],
+        location_level1=["福建"],
+        location_level2=[""],
+        location_level3=[""],
+        outing_id=0,
+        limit=50,
+        offset=0,
+    )
+    context = templates.calls[0]["context"]
+    assert len(context["photos"]) == 2
+
+    web_app.gallery_page(
+        request=object(),
+        q="",
+        view="",
+        filter="",
+        date="",
+        date_from="",
+        date_to="",
+        species=[""],
+        families=[""],
+        locations=[""],
+        location_level1=["福建"],
+        location_level2=["福州"],
+        location_level3=[""],
+        outing_id=0,
+        limit=50,
+        offset=0,
+    )
+    context = templates.calls[-1]["context"]
+    assert len(context["photos"]) == 1
+    assert context["photos"][0]["location_level3"] == "森林公园"

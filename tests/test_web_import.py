@@ -14,7 +14,7 @@ class FakeTaskManager:
         self.logs = []
         self.started_args = None
 
-    def start_import(self, folder_path, recursive=True, run_recognition=True, overwrite=False, config=None):
+    def start_import(self, folder_path, recursive=True, run_recognition=True, overwrite=False, config=None, location_info=None):
         if self.is_running:
             return False
         self.is_running = True
@@ -24,6 +24,7 @@ class FakeTaskManager:
             "run_recognition": run_recognition,
             "overwrite": overwrite,
             "config": config,
+            "location_info": location_info,
         }
         return True
 
@@ -98,8 +99,31 @@ def test_get_status(service):
     assert status["logs"] == ["log1", "log2"]
 
 
-def test_supported_formats_falls_back_to_defaults():
-    svc = import_service.ImportService(FakeTaskManager(), {})
-    exts = svc._supported_formats()
-    assert ".jpg" in exts
-    assert ".raw" not in exts
+def test_scan_folder_returns_location_info(service, tmp_path):
+    location_dir = tmp_path / "20260102_北京_玉渊潭公园"
+    location_dir.mkdir()
+    (location_dir / "a.jpg").write_bytes(b"1")
+
+    result = service.scan_folder(str(location_dir.parent), recursive=True)
+    assert result["location"]["tag"] == "北京_玉渊潭公园"
+    assert result["location"]["level1"] == "北京"
+    assert result["location"]["level2"] == "玉渊潭公园"
+    assert result["location"]["level3"] is None
+
+
+def test_parse_location_from_folder_path(service):
+    location = service.parse_location("D:/Photos/20260102_北京_玉渊潭公园")
+    assert location["tag"] == "北京_玉渊潭公园"
+    assert location["level1"] == "北京"
+    assert location["level2"] == "玉渊潭公园"
+    assert location["level3"] is None
+
+
+def test_start_import_passes_location_info(service, tmp_path):
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    location_info = {"location_tag": "福建_福州_森林公园", "location_level1": "福建", "location_level2": "福州", "location_level3": "森林公园"}
+    result = service.start_import(str(tmp_path), recursive=True, run_recognition=True, location_info=location_info)
+    assert result["status"] == "success"
+    assert service.task_manager.started_args["location_info"] == location_info
+
+

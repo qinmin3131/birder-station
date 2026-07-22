@@ -24,6 +24,9 @@ def init_database(engine):
             ("quality_score", "INTEGER"),
             ("quality_details", "TEXT"),
             ("bird_bbox", "TEXT"),
+            ("location_level1", "TEXT"),
+            ("location_level2", "TEXT"),
+            ("location_level3", "TEXT"),
             ("created_at", "DATETIME DEFAULT CURRENT_TIMESTAMP"),
         ]
         for col_name, col_type in missing_columns:
@@ -61,6 +64,9 @@ class Photo(Base):
     captured_at = Column(DateTime)
     captured_date = Column(String)
     location_tag = Column(String)
+    location_level1 = Column(String)  # 省/直辖市
+    location_level2 = Column(String)  # 市/区
+    location_level3 = Column(String)  # 公园/具体地点
     latitude = Column(Float)
     longitude = Column(Float)
     primary_bird_cn = Column(String)

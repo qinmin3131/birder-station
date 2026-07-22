@@ -4,6 +4,7 @@ from typing import List, Set, Optional
 from collections import Counter
 
 from src.core.indexer import PhotoIndexer, SUPPORTED_FORMATS, RAW_FORMATS
+from src.core.io.path_parser import PathParser
 from src.db.repository import PhotoRepository
 
 
@@ -46,6 +47,17 @@ class ImportService:
         total_size = sum(p.stat().st_size for p in files)
         counts = Counter(p.suffix.lower() for p in files)
 
+        # Attempt to parse location from the immediate folder name
+        parser = PathParser(str(folder_path))
+        sample_file = str(files[0]) if files else str(folder_path / "sample.jpg")
+        parsed = parser.parse(sample_file)
+        location = {
+            "tag": parsed.get("location_tag"),
+            "level1": parsed.get("location_level1"),
+            "level2": parsed.get("location_level2"),
+            "level3": parsed.get("location_level3"),
+        }
+
         return {
             "folder": str(folder_path.resolve()),
             "recursive": recursive,
@@ -56,9 +68,23 @@ class ImportService:
             "jpeg_files": sum(counts[ext] for ext in jpeg_formats),
             "extensions": dict(counts),
             "sample_files": [str(p) for p in files[:10]],
+            "location": location,
         }
 
-    def start_import(self, folder: str, recursive: bool = True, run_recognition: bool = True, overwrite: bool = False) -> dict:
+    def parse_location(self, folder: str) -> dict:
+        """Parse location info from a folder path without scanning files."""
+        folder_path = Path(folder)
+        parser = PathParser(str(folder_path.parent))
+        sample_file = str(folder_path / "sample.jpg")
+        parsed = parser.parse(sample_file)
+        return {
+            "tag": parsed.get("location_tag"),
+            "level1": parsed.get("location_level1"),
+            "level2": parsed.get("location_level2"),
+            "level3": parsed.get("location_level3"),
+        }
+
+    def start_import(self, folder: str, recursive: bool = True, run_recognition: bool = True, overwrite: bool = False, location_info: dict = None) -> dict:
         """Start the background import task."""
         if self.task_manager.is_running:
             return {"status": "error", "message": "Another task is already running"}
@@ -73,6 +99,7 @@ class ImportService:
             run_recognition=run_recognition,
             overwrite=overwrite,
             config=self.config,
+            location_info=location_info,
         )
         return {"status": "success", "message": "Import started"}
 

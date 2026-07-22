@@ -106,13 +106,37 @@
                                 </select>
                             </div>
 
-                            <!-- 地点多选 -->
+                            <!-- 省 -->
                             <div class="col-6 col-md-2">
-                                <label class="form-label small text-muted mb-0">地点</label>
-                                <select class="form-select form-select-sm" name="locations" multiple size="1" style="min-height: 2.5rem;">
-                                    {% for loc in available_locations %}
-                                    <option value="{{ loc.tag }}" {{ 'selected' if loc.tag in selected_locations else '' }}>
-                                        {{ loc.tag }} ({{ loc.count }})
+                                <label class="form-label small text-muted mb-0">省 / 直辖市</label>
+                                <select class="form-select form-select-sm" name="location_level1" multiple size="1" style="min-height: 2.5rem;">
+                                    {% for loc in available_level1 %}
+                                    <option value="{{ loc.name }}" {{ 'selected' if loc.name in selected_level1 else '' }}>
+                                        {{ loc.name }} ({{ loc.count }})
+                                    </option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+
+                            <!-- 市 -->
+                            <div class="col-6 col-md-2">
+                                <label class="form-label small text-muted mb-0">市 / 区</label>
+                                <select class="form-select form-select-sm" name="location_level2" multiple size="1" style="min-height: 2.5rem;">
+                                    {% for loc in available_level2 %}
+                                    <option value="{{ loc.name }}" {{ 'selected' if loc.name in selected_level2 else '' }}>
+                                        {{ loc.name }} ({{ loc.count }})
+                                    </option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+
+                            <!-- 公园/地点 -->
+                            <div class="col-6 col-md-2">
+                                <label class="form-label small text-muted mb-0">公园 / 地点</label>
+                                <select class="form-select form-select-sm" name="location_level3" multiple size="1" style="min-height: 2.5rem;">
+                                    {% for loc in available_level3 %}
+                                    <option value="{{ loc.name }}" {{ 'selected' if loc.name in selected_level3 else '' }}>
+                                        {{ loc.name }} ({{ loc.count }})
                                     </option>
                                     {% endfor %}
                                 </select>
@@ -145,7 +169,9 @@
                 {% if date_from or date_to %} | 日期：{{ date_from }} ~ {{ date_to }} {% endif %}
                 {% if selected_species %} | 鸟种：{{ selected_species|join('、') }} {% endif %}
                 {% if selected_families %} | 科：{{ selected_families|join('、') }} {% endif %}
-                {% if selected_locations %} | 地点：{{ selected_locations|join('、') }} {% endif %}
+                {% if selected_level1 %} | 省：{{ selected_level1|join('、') }} {% endif %}
+                {% if selected_level2 %} | 市：{{ selected_level2|join('、') }} {% endif %}
+                {% if selected_level3 %} | 地点：{{ selected_level3|join('、') }} {% endif %}
             </span>
             <div class="btn-group btn-group-sm">
                 <a href="/gallery?{{ base_query }}&offset={{ prev_offset }}{% if current_view %}&view={{ current_view }}{% endif %}" class="btn btn-outline-secondary {% if not has_prev %}disabled{% endif %}">上一页</a>

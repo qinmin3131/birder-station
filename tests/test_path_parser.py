@@ -104,3 +104,24 @@ class TestPathParserRecursive:
         path = f"{self.root}/2025/2026/北京柳荫公园/bird.jpg"
         meta = self.parser.parse(path)
         assert meta['location_tag'] == '北京柳荫公园'
+
+    def test_split_location_tag_three_parts(self):
+        assert PathParser.split_location_tag("福建_福州_森林公园") == ("福建", "福州", "森林公园")
+
+    def test_split_location_tag_two_parts(self):
+        assert PathParser.split_location_tag("北京_玉渊潭公园") == ("北京", "玉渊潭公园", None)
+
+    def test_split_location_tag_one_part(self):
+        assert PathParser.split_location_tag("奥林匹克公园") == (None, None, "奥林匹克公园")
+
+    def test_split_location_tag_empty(self):
+        assert PathParser.split_location_tag("") == (None, None, None)
+        assert PathParser.split_location_tag(None) == (None, None, None)
+
+    def test_parse_populates_location_levels(self):
+        path = f"{self.root}/20260102_福建_福州_森林公园/bird.jpg"
+        meta = self.parser.parse(path)
+        assert meta['location_tag'] == '福建_福州_森林公园'
+        assert meta['location_level1'] == '福建'
+        assert meta['location_level2'] == '福州'
+        assert meta['location_level3'] == '森林公园'

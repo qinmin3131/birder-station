@@ -173,6 +173,38 @@
                         </div>
                     </div>
 
+                    <div class="card border mt-4">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                <h6 class="card-title fw-bold mb-0"><i class="bi bi-geo-alt"></i> 拍摄地点</h6>
+                                <button type="button" class="btn btn-sm btn-outline-primary" onclick="parseLocationFromPath()">
+                                    <i class="bi bi-magic"></i> 从路径自动解析
+                                </button>
+                            </div>
+                            <div class="row g-3">
+                                <div class="col-md-4">
+                                    <label class="form-label small text-muted mb-0">省 / 直辖市</label>
+                                    <input type="text" id="loc-level1" class="form-control" placeholder="如：北京">
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label small text-muted mb-0">市 / 区</label>
+                                    <input type="text" id="loc-level2" class="form-control" placeholder="如：海淀区">
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label small text-muted mb-0">公园 / 具体地点</label>
+                                    <input type="text" id="loc-level3" class="form-control" placeholder="如：玉渊潭公园">
+                                </div>
+                            </div>
+                            <div class="mt-3">
+                                <label class="form-label small text-muted mb-0">地点标签（组合显示）</label>
+                                <input type="text" id="loc-tag" class="form-control" placeholder="自动生成为 省_市_公园" readonly>
+                            </div>
+                            <p class="small text-muted mt-2 mb-0">
+                                图片本身没有 GPS 信息时，建议在导入时填写地点。一次外拍通常对应一个地点，可从文件夹名自动解析（如 <code>20260102_北京_玉渊潭公园</code>）。
+                            </p>
+                        </div>
+                    </div>
+
                     <div class="alert alert-info mt-4">
                         <strong>导入说明：</strong>
                         <ul class="mb-0 mt-1">
@@ -325,12 +357,61 @@
                 li.textContent = path;
                 sampleContainer.appendChild(li);
             });
+
+            // Auto-parse location after scan if not already filled
+            if (data.location && !document.getElementById('loc-level1').value) {
+                fillLocation(data.location);
+            }
         }
+
+        function fillLocation(location) {
+            document.getElementById('loc-level1').value = location.level1 || '';
+            document.getElementById('loc-level2').value = location.level2 || '';
+            document.getElementById('loc-level3').value = location.level3 || '';
+            document.getElementById('loc-tag').value = location.tag || '';
+        }
+
+        async function parseLocationFromPath() {
+            const folder = document.getElementById('folder-input').value.trim();
+            if (!folder) return;
+            try {
+                const res = await fetch('/api/import/parse-location', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ folder })
+                });
+                const json = await res.json();
+                if (json.status !== 'success') throw new Error(json.detail || '解析失败');
+                fillLocation(json.data);
+            } catch (e) {
+                console.error('Parse location failed', e);
+                alert('地点解析失败：' + e.message);
+            }
+        }
+
+        function updateLocationTag() {
+            const parts = [
+                document.getElementById('loc-level1').value.trim(),
+                document.getElementById('loc-level2').value.trim(),
+                document.getElementById('loc-level3').value.trim()
+            ].filter(Boolean);
+            document.getElementById('loc-tag').value = parts.join('_');
+        }
+
+        ['loc-level1', 'loc-level2', 'loc-level3'].forEach(id => {
+            document.getElementById(id).addEventListener('input', updateLocationTag);
+        });
 
         async function startImport() {
             const folder = document.getElementById('folder-input').value.trim();
             const recursive = document.getElementById('opt-recursive').checked;
             const runRecognition = document.getElementById('opt-recognition').checked;
+            const locationInfo = {
+                location_tag: document.getElementById('loc-tag').value.trim(),
+                location_level1: document.getElementById('loc-level1').value.trim(),
+                location_level2: document.getElementById('loc-level2').value.trim(),
+                location_level3: document.getElementById('loc-level3').value.trim(),
+            };
 
             document.getElementById('run-status').textContent = '正在导入...';
             document.getElementById('progress-bar').style.width = '0%';
@@ -341,7 +422,7 @@
                 const res = await fetch('/api/import/start', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ folder, recursive, run_recognition: runRecognition })
+                    body: JSON.stringify({ folder, recursive, run_recognition: runRecognition, location_info: locationInfo })
                 });
                 const json = await res.json();
                 if (json.status !== 'success') throw new Error(json.detail || '启动失败');

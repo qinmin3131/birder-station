@@ -113,10 +113,10 @@ class TaskManager:
             self.is_running = False
             log_capture.removeHandler(handler)
 
-    def start_import(self, folder_path: str, recursive: bool = True, run_recognition: bool = True, overwrite: bool = False, config: dict = None):
+    def start_import(self, folder_path: str, recursive: bool = True, run_recognition: bool = True, overwrite: bool = False, config: dict = None, location_info: dict = None):
         """Start a guided import task: index photos then optionally run recognition pipeline."""
         logger.info(
-            f"[TaskManager] start_import called with path={folder_path}, recursive={recursive}, run_recognition={run_recognition}, overwrite={overwrite}"
+            f"[TaskManager] start_import called with path={folder_path}, recursive={recursive}, run_recognition={run_recognition}, overwrite={overwrite}, location_info={location_info}"
         )
         if self.is_running:
             logger.warning("[TaskManager] Task already running, rejecting import request")
@@ -129,14 +129,14 @@ class TaskManager:
 
         thread = threading.Thread(
             target=self._run_import_thread,
-            args=(folder_path, recursive, run_recognition, overwrite, config),
+            args=(folder_path, recursive, run_recognition, overwrite, config, location_info),
             daemon=True,
         )
         thread.start()
         logger.info("[TaskManager] Import thread started, returning success")
         return True
 
-    def _run_import_thread(self, folder_path: str, recursive: bool, run_recognition: bool, overwrite: bool, config: dict):
+    def _run_import_thread(self, folder_path: str, recursive: bool, run_recognition: bool, overwrite: bool, config: dict, location_info: dict = None):
         log_capture = logging.getLogger()
         handler = ListLogHandler(self.logs)
         try:
@@ -160,7 +160,7 @@ class TaskManager:
             try:
                 supported_formats = config.get("paths", {}).get("supported_formats") if config else None
                 indexer = PhotoIndexer(PhotoRepository(session), supported_formats=set(supported_formats) if supported_formats else None)
-                result = indexer.index_folder_with_stats(Path(folder_path), recursive=recursive, overwrite=overwrite)
+                result = indexer.index_folder_with_stats(Path(folder_path), recursive=recursive, overwrite=overwrite, location_info=location_info)
                 self.logs.append(
                     f"索引完成：新增 {result['indexed']} 张，跳过重复 {result['skipped']} 张，失败 {result['errors']} 张，覆盖 {result.get('overwritten', 0)} 张"
                 )

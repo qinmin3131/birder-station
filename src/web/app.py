@@ -1072,7 +1072,7 @@ def import_page(request: Request):
 
 @app.post("/api/import/scan")
 async def import_scan(data: dict):
-    """扫描指定目录，返回可导入文件统计。"""
+    """扫描指定目录，返回可导入文件统计及路径解析的地点。"""
     try:
         folder = data.get("folder", "")
         recursive = data.get("recursive", True)
@@ -1087,6 +1087,21 @@ async def import_scan(data: dict):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/api/import/parse-location")
+async def import_parse_location(data: dict):
+    """从文件夹路径解析地点信息，不需要扫描文件。"""
+    try:
+        folder = data.get("folder", "")
+        if not folder:
+            raise HTTPException(status_code=400, detail="请提供文件夹路径")
+        return {"status": "success", "data": import_service_instance.parse_location(folder)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Parse location failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/api/import/start")
 async def import_start(data: dict):
     """启动照片导入任务（索引 + 可选识别）。"""
@@ -1094,11 +1109,12 @@ async def import_start(data: dict):
     recursive = data.get("recursive", True)
     run_recognition = data.get("run_recognition", True)
     overwrite = data.get("overwrite", False)
+    location_info = data.get("location_info", None)
     if not folder:
         raise HTTPException(status_code=400, detail="请提供文件夹路径")
 
     result = import_service_instance.start_import(
-        folder, recursive=recursive, run_recognition=run_recognition, overwrite=overwrite
+        folder, recursive=recursive, run_recognition=run_recognition, overwrite=overwrite, location_info=location_info
     )
     if result.get("status") == "error":
         raise HTTPException(status_code=409, detail=result["message"])
@@ -1122,12 +1138,29 @@ def gallery_page(
     date_to: str = "",
     species: List[str] = Query(default=[]),
     families: List[str] = Query(default=[]),
-    locations: List[str] = Query(default=[]),
+    locations: List[str] = Query(default=[]),  # 兼容旧参数
+    location_level1: List[str] = Query(default=[]),
+    location_level2: List[str] = Query(default=[]),
+    location_level3: List[str] = Query(default=[]),
     outing_id: int = 0,
     limit: int = 50,
     offset: int = 0,
 ):
     """图库浏览：按时间/地点/鸟种/视图筛选。"""
+
+    def _list_param(values):
+        if values is None:
+            return []
+        if isinstance(values, list):
+            return values
+        if isinstance(values, str):
+            return [values] if values.strip() else []
+        # FastAPI Query default object when called directly in tests
+        if hasattr(values, "default"):
+            default = values.default
+            return default if isinstance(default, list) else []
+        return []
+
     session = get_sqlalchemy_session()
     try:
         # 兼容旧 filter 参数
@@ -1169,7 +1202,7 @@ def gallery_page(
                 query = query.filter(Photo.captured_date <= date_to)
 
         # Species filter (multi-select)
-        selected_species = [s.strip() for s in species if s.strip()]
+        selected_species = [s.strip() for s in _list_param(species) if s.strip()]
         if selected_species:
             query = query.filter(
                 Photo.primary_bird_cn.in_(selected_species) |
@@ -1177,14 +1210,28 @@ def gallery_page(
             )
 
         # Family filter (multi-select, requires join)
-        selected_families = [f.strip() for f in families if f.strip()]
+        selected_families = [f.strip() for f in _list_param(families) if f.strip()]
         if selected_families:
             query = query.filter(Species.family_cn.in_(selected_families))
 
-        # Location filter (multi-select)
-        selected_locations = [loc.strip() for loc in locations if loc.strip()]
-        if selected_locations:
-            query = query.filter(Photo.location_tag.in_(selected_locations))
+        # Location filter (cascade: province / city / site)
+        selected_level1 = [loc.strip() for loc in _list_param(location_level1) if loc.strip()]
+        selected_level2 = [loc.strip() for loc in _list_param(location_level2) if loc.strip()]
+        selected_level3 = [loc.strip() for loc in _list_param(location_level3) if loc.strip()]
+        # Backward compatibility: old "locations" parameter maps to full tag or level3
+        legacy_locations = [loc.strip() for loc in _list_param(locations) if loc.strip()]
+        if legacy_locations and not (selected_level1 or selected_level2 or selected_level3):
+            query = query.filter(
+                (Photo.location_tag.in_(legacy_locations)) |
+                (Photo.location_level3.in_(legacy_locations))
+            )
+        else:
+            if selected_level1:
+                query = query.filter(Photo.location_level1.in_(selected_level1))
+            if selected_level2:
+                query = query.filter(Photo.location_level2.in_(selected_level2))
+            if selected_level3:
+                query = query.filter(Photo.location_level3.in_(selected_level3))
 
         # Outing filter (placeholder for future integration)
         if outing_id:
@@ -1200,6 +1247,9 @@ def gallery_page(
                 "primary_bird_cn": p.primary_bird_cn,
                 "scientific_name": p.scientific_name,
                 "location_tag": p.location_tag,
+                "location_level1": p.location_level1,
+                "location_level2": p.location_level2,
+                "location_level3": p.location_level3,
                 "captured_date": p.captured_date,
                 "confidence_score": p.confidence_score or 0,
                 "quality_score": p.quality_score or 0,
@@ -1227,11 +1277,29 @@ def gallery_page(
             if family_cn
         ]
         available_locations = [
-            {"tag": tag, "count": count}
-            for tag, count in session.query(
-                Photo.location_tag, func.count(Photo.id)
-            ).group_by(Photo.location_tag).order_by(func.count(Photo.id).desc()).all()
-            if tag
+            {"level1": l1, "level2": l2, "level3": l3, "count": count}
+            for l1, l2, l3, count in session.query(
+                Photo.location_level1, Photo.location_level2, Photo.location_level3, func.count(Photo.id)
+            ).group_by(Photo.location_level1, Photo.location_level2, Photo.location_level3).order_by(func.count(Photo.id).desc()).all()
+            if l1 or l2 or l3
+        ]
+        available_level1 = [
+            {"name": name, "count": count}
+            for name, count in session.query(
+                Photo.location_level1, func.count(Photo.id)
+            ).filter(Photo.location_level1.isnot(None)).group_by(Photo.location_level1).order_by(func.count(Photo.id).desc()).all()
+        ]
+        available_level2 = [
+            {"name": name, "count": count}
+            for name, count in session.query(
+                Photo.location_level2, func.count(Photo.id)
+            ).filter(Photo.location_level2.isnot(None)).group_by(Photo.location_level2).order_by(func.count(Photo.id).desc()).all()
+        ]
+        available_level3 = [
+            {"name": name, "count": count}
+            for name, count in session.query(
+                Photo.location_level3, func.count(Photo.id)
+            ).filter(Photo.location_level3.isnot(None)).group_by(Photo.location_level3).order_by(func.count(Photo.id).desc()).all()
         ]
 
         has_next = (offset + limit) < total_count
@@ -1248,7 +1316,13 @@ def gallery_page(
             filter_params.setdefault("species", []).append(value)
         for value in selected_families:
             filter_params.setdefault("families", []).append(value)
-        for value in selected_locations:
+        for value in selected_level1:
+            filter_params.setdefault("location_level1", []).append(value)
+        for value in selected_level2:
+            filter_params.setdefault("location_level2", []).append(value)
+        for value in selected_level3:
+            filter_params.setdefault("location_level3", []).append(value)
+        for value in legacy_locations:
             filter_params.setdefault("locations", []).append(value)
         if outing_id:
             filter_params["outing_id"] = outing_id
@@ -1269,7 +1343,10 @@ def gallery_page(
                 "date_to": date_to,
                 "selected_species": selected_species,
                 "selected_families": selected_families,
-                "selected_locations": selected_locations,
+                "selected_level1": selected_level1,
+                "selected_level2": selected_level2,
+                "selected_level3": selected_level3,
+                "selected_locations": legacy_locations,
                 "limit": limit,
                 "offset": offset,
                 "total_count": total_count,
@@ -1277,6 +1354,9 @@ def gallery_page(
                 "available_species": available_species,
                 "available_families": available_families,
                 "available_locations": available_locations,
+                "available_level1": available_level1,
+                "available_level2": available_level2,
+                "available_level3": available_level3,
                 "base_query": base_query,
                 "has_next": has_next,
                 "has_prev": has_prev,

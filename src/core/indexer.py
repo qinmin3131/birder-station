@@ -35,9 +35,10 @@ class PhotoIndexer:
                 hasher.update(chunk)
         return hasher.hexdigest()
 
-    def index_folder(self, folder: Path, recursive: bool = True) -> List[Photo]:
+    def index_folder(self, folder: Path, recursive: bool = True, location_info: Optional[dict] = None) -> List[Photo]:
         photos = []
         glob_pattern = "**/*" if recursive else "*"
+        location_kwargs = self._build_location_kwargs(location_info)
         for path in folder.glob(glob_pattern):
             if not path.is_file():
                 continue
@@ -54,19 +55,21 @@ class PhotoIndexer:
                     filename=path.name,
                     original_path=str(path),
                     file_hash=file_hash,
+                    **location_kwargs,
                 )
                 photos.append(self.repo.add(photo))
             except Exception as e:
                 logger.error(f"Failed to index {path}: {e}")
         return photos
 
-    def index_folder_with_stats(self, folder: Path, recursive: bool = True, overwrite: bool = False) -> dict:
+    def index_folder_with_stats(self, folder: Path, recursive: bool = True, overwrite: bool = False, location_info: Optional[dict] = None) -> dict:
         indexed = 0
         skipped = 0
         errors = 0
         overwritten = 0
         photo_ids = []
         glob_pattern = "**/*" if recursive else "*"
+        location_kwargs = self._build_location_kwargs(location_info)
         for path in folder.glob(glob_pattern):
             if not path.is_file():
                 continue
@@ -96,6 +99,7 @@ class PhotoIndexer:
                     filename=filename,
                     original_path=file_path,
                     file_hash=file_hash,
+                    **location_kwargs,
                 )
                 photo = self.repo.add(photo)
                 photo_ids.append(photo.id)
@@ -104,6 +108,17 @@ class PhotoIndexer:
                 logger.error(f"Failed to index {path}: {e}")
                 errors += 1
         return {"indexed": indexed, "skipped": skipped, "errors": errors, "overwritten": overwritten, "photo_ids": photo_ids}
+
+    @staticmethod
+    def _build_location_kwargs(location_info: Optional[dict]) -> dict:
+        if not location_info:
+            return {}
+        return {
+            "location_tag": location_info.get("location_tag"),
+            "location_level1": location_info.get("location_level1"),
+            "location_level2": location_info.get("location_level2"),
+            "location_level3": location_info.get("location_level3"),
+        }
 
 
 def decode_raw(path: Path) -> np.ndarray:

@@ -120,6 +120,9 @@ class IOCManager:
                 file_hash TEXT,
                 captured_date TEXT,
                 location_tag TEXT,
+                location_level1 TEXT,
+                location_level2 TEXT,
+                location_level3 TEXT,
                 primary_bird_cn TEXT,
                 scientific_name TEXT,
                 confidence_score REAL,
@@ -154,7 +157,7 @@ class IOCManager:
             try: self.conn.execute("ALTER TABLE photos ADD COLUMN candidates_json TEXT")
             except: pass
 
-        # Migration - Add feature columns (grouping, quality, selection)
+        # Migration - Add feature columns (grouping, quality, selection, location)
         for col_name, col_type in [
             ("captured_at", "DATETIME"),
             ("is_selected", "INTEGER DEFAULT 0"),
@@ -163,6 +166,9 @@ class IOCManager:
             ("quality_details", "TEXT"),
             ("created_at", "DATETIME DEFAULT CURRENT_TIMESTAMP"),
             ("group_id", "INTEGER"),
+            ("location_level1", "TEXT"),
+            ("location_level2", "TEXT"),
+            ("location_level3", "TEXT"),
         ]:
             try:
                 self.conn.execute(f"ALTER TABLE photos ADD COLUMN {col_name} {col_type}")

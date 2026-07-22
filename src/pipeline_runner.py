@@ -609,6 +609,9 @@ class WingScribePipeline:
                 'captured_date': meta.get('captured_date'),
                 'captured_at': captured_at,
                 'location_tag': meta.get('location_tag'),
+                'location_level1': meta.get('location_level1'),
+                'location_level2': meta.get('location_level2'),
+                'location_level3': meta.get('location_level3'),
                 'primary_bird_cn': cn_name,
                 'scientific_name': sci_name,
                 'confidence_score': confidence,
@@ -629,6 +632,9 @@ class WingScribePipeline:
                 'captured_date': meta.get('captured_date'),
                 'captured_at': captured_at,
                 'location_tag': meta.get('location_tag'),
+                'location_level1': meta.get('location_level1'),
+                'location_level2': meta.get('location_level2'),
+                'location_level3': meta.get('location_level3'),
                 'primary_bird_cn': cn_name,
                 'scientific_name': sci_name,
                 'confidence_score': confidence,
@@ -807,7 +813,7 @@ class WingScribePipeline:
         records = []
         for pid in photo_ids:
             row = self.db.conn.execute(
-                "SELECT id, file_path, filename, original_path, captured_date, location_tag FROM photos WHERE id = ?",
+                "SELECT id, file_path, filename, original_path, captured_date, location_tag, location_level1, location_level2, location_level3 FROM photos WHERE id = ?",
                 (pid,)
             ).fetchone()
             if row:
@@ -843,6 +849,12 @@ class WingScribePipeline:
                     meta['captured_date'] = record['captured_date']
                 if record.get('location_tag'):
                     meta['location_tag'] = record['location_tag']
+                if record.get('location_level1'):
+                    meta['location_level1'] = record['location_level1']
+                if record.get('location_level2'):
+                    meta['location_level2'] = record['location_level2']
+                if record.get('location_level3'):
+                    meta['location_level3'] = record['location_level3']
 
                 futures.append(executor.submit(self.process_image_by_id, provider, record, meta))
 

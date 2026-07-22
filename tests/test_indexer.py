@@ -79,3 +79,25 @@ def test_index_folder_with_stats_counts_indexed_and_skipped(repo, tmp_path):
     assert result["errors"] == 0
     assert result["overwritten"] == 0
     assert len(result["photo_ids"]) == 1
+
+
+def test_index_folder_with_stats_applies_location_info(repo, tmp_path):
+    indexer = PhotoIndexer(repo)
+
+    img_path = tmp_path / "bird.jpg"
+    Image.new("RGB", (100, 100), color="blue").save(img_path)
+
+    location_info = {
+        "location_tag": "福建_福州_森林公园",
+        "location_level1": "福建",
+        "location_level2": "福州",
+        "location_level3": "森林公园",
+    }
+    result = indexer.index_folder_with_stats(tmp_path, location_info=location_info)
+
+    assert result["indexed"] == 1
+    photo = repo.list_photos()[0]
+    assert photo.location_tag == "福建_福州_森林公园"
+    assert photo.location_level1 == "福建"
+    assert photo.location_level2 == "福州"
+    assert photo.location_level3 == "森林公园"

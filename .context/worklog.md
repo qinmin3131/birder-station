@@ -205,6 +205,33 @@
       - 本地启动服务，访问 `/gallery` 返回 200，页面包含所有筛选控件和视图切换链接。
     - 提交 `TBD`：功能: 增强图库筛选能力（日期范围、科/种、地点、视图切换）。
 
+13. **结构化地点录入与级联图库筛选**
+    - 需求：用户希望优化地点选择，并在导入时提供地点信息（图片无 GPS）。一次外拍通常一个地点，导入向导中可填写“省/市/公园”，并支持从文件夹路径自动解析（如 `20260102_北京_玉渊潭公园`）。
+    - 数据模型与路径解析：
+      - `src/db/models.py`：在 `Photo` 表新增 `location_level1`（省/直辖市）、`location_level2`（市/区）、`location_level3`（公园/具体地点）字段；迁移列表同步增加对应列。
+      - `src/core/io/path_parser.py`：新增 `split_location_tag()` 静态方法，将 `location_tag` 按 `_` 拆分为三级地点；`parse()` 返回 `location_level1/2/3`。
+    - 导入链路：
+      - `src/core/indexer.py`：`index_folder` 和 `index_folder_with_stats` 新增 `location_info` 参数，`_build_location_kwargs()` 注入三级地点到 `Photo` 构造函数。
+      - `src/web/task_manager.py`：`start_import()` / `_run_import_thread()` 透传 `location_info`。
+      - `src/web/import_service.py`：`scan_folder()` 返回 `location` 字段；新增 `parse_location()` 解析文件夹路径；`start_import()` 接收并透传 `location_info`。
+      - `src/web/app.py`：新增 `/api/import/parse-location` 接口；`/api/import/start` 接收 `location_info`。
+    - 前端：
+      - `src/web/templates/import.html`：在 Step 3 添加“省/市/公园”输入框和“从路径自动解析”按钮；地点标签自动生成；导入启动时提交 `location_info`。
+    - 图库级联筛选：
+      - `src/web/app.py` 的 `/gallery` 路由：参数新增 `location_level1/2/3`，支持三级地点级联筛选；兼容旧 `locations` 参数；`available_level1/2/3` 分别提供各级可选列表。
+      - `src/web/templates/gallery.html`：地点多选改为省/市/公园三个下拉框，状态栏同步显示三级筛选条件。
+    - 底层识别写入：
+      - `src/metadata/ioc_manager.py`：`photos` 表创建与迁移均新增 `location_level1/2/3` 列。
+      - `src/pipeline_runner.py`：`process_image()` 写入 `location_level1/2/3`；`run_by_photo_ids()` 读取数据库已有地点并覆盖到 meta。
+    - 测试：
+      - `tests/test_path_parser.py`：新增 `split_location_tag` 和 `parse` 返回三级地点的用例。
+      - `tests/test_indexer.py`：新增 `location_info` 写入 `Photo` 的测试。
+      - `tests/test_web_import.py`：新增 `scan_folder` 返回地点、`parse_location`、导入透传 `location_info` 的测试。
+      - `tests/test_web_three_domain.py`：更新 `gallery_page` 断言以匹配新版 context；新增级联地点筛选测试。
+    - 验证：
+      - 完整测试套件：`346 passed, 1 skipped`。
+    - 提交 `TBD`：功能: 结构化地点录入与级联图库筛选。
+
 ### 待处理
 - [ ] 与 `spec.md` 对齐：当前 spec 中是否有三域 Web 的详细设计需要确认
 - [x] 将 QualityScorer 集成进 pipeline_runner
