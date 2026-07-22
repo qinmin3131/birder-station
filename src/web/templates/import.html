@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>导入照片 - 飞羽志 WingScribe</title>
+    <link rel="icon" type="image/x-icon" href="/lib/favicon.ico">
+    <link href="/lib/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.bootcdn.net/ajax/libs/bootstrap-icons/1.11.3/font/bootstrap-icons.min.css">
+    <style>
+        body { background: #f5f6f8; font-size: 14px; }
+        .import-card { border: 0; border-radius: 12px; box-shadow: 0 4px 24px rgba(0,0,0,0.06); }
+        .stepper { display: flex; justify-content: space-between; margin-bottom: 2rem; }
+        .stepper .step { flex: 1; text-align: center; position: relative; color: #adb5bd; }
+        .stepper .step:not(:last-child)::after {
+            content: ''; position: absolute; top: 14px; left: 50%; width: 100%; height: 2px; background: #dee2e6; z-index: 0;
+        }
+        .stepper .step .badge { width: 32px; height: 32px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; background: #e9ecef; color: #6c757d; position: relative; z-index: 1; }
+        .stepper .step.active { color: #0d6efd; font-weight: 500; }
+        .stepper .step.active .badge { background: #0d6efd; color: white; }
+        .stepper .step.done { color: #198754; }
+        .stepper .step.done .badge { background: #198754; color: white; }
+        .folder-input { font-size: 1.1rem; padding: 0.75rem 1rem; }
+        .log-console { background: #212529; color: #f8f9fa; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 0.85rem; height: 280px; overflow-y: auto; border-radius: 8px; padding: 1rem; }
+        .stat-card { text-align: center; padding: 1.25rem; border-radius: 10px; background: white; border: 1px solid #e9ecef; }
+        .stat-card .stat-value { font-size: 1.75rem; font-weight: 700; color: #0d6efd; }
+        .stat-card .stat-label { color: #6c757d; font-size: 0.875rem; }
+        .ext-badge { font-size: 0.8rem; }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg shadow-sm" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+        <div class="container">
+            <a class="navbar-brand fw-bold text-white" href="/">
+                <span style="font-size: 1.3em;">🕊️</span> 飞羽志 <span class="opacity-75">| WingScribe</span>
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav me-auto">
+                    <li class="nav-item"><a class="nav-link text-white" href="/select">选片</a></li>
+                    <li class="nav-item"><a class="nav-link text-white" href="/gallery">图库</a></li>
+                    <li class="nav-item"><a class="nav-link text-white" href="/guide">图鉴</a></li>
+                    <li class="nav-item"><a class="nav-link text-white" href="/admin">管理与任务</a></li>
+                    <li class="nav-item"><a class="nav-link text-white active bg-white bg-opacity-25 rounded" href="/import"><i class="bi bi-cloud-upload"></i> 导入</a></li>
+                    <li class="nav-item"><a class="nav-link text-white" href="/settings"><i class="bi bi-gear-fill"></i> 设置</a></li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4 mb-5">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h4 class="mb-0 fw-bold">📥 导入照片</h4>
+            <a href="/admin" class="btn btn-sm btn-outline-secondary">查看任务管理器</a>
+        </div>
+
+        <div class="import-card card">
+            <div class="card-body p-4">
+                <!-- Stepper -->
+                <div class="stepper" id="stepper">
+                    <div class="step active" data-step="1">
+                        <span class="badge">1</span>
+                        <div class="mt-1">选择源目录</div>
+                    </div>
+                    <div class="step" data-step="2">
+                        <span class="badge">2</span>
+                        <div class="mt-1">扫描预览</div>
+                    </div>
+                    <div class="step" data-step="3">
+                        <span class="badge">3</span>
+                        <div class="mt-1">导入选项</div>
+                    </div>
+                    <div class="step" data-step="4">
+                        <span class="badge">4</span>
+                        <div class="mt-1">执行导入</div>
+                    </div>
+                </div>
+
+                <!-- Step 1: Source -->
+                <div id="step-1" class="step-content">
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">照片源目录</label>
+                        <div class="input-group input-group-lg">
+                            <span class="input-group-text"><i class="bi bi-folder"></i></span>
+                            <input type="text" id="folder-input" class="form-control folder-input" placeholder="例如 D:\Photos\ outing" value="{{ default_source_dir }}">
+                            <button class="btn btn-primary" type="button" onclick="scanFolder()">扫描</button>
+                        </div>
+                        <div class="form-text">支持 JPEG 和常见 RAW 格式（ORF、NEF、CR2、CR3、ARW、DNG、RW2、PEF、RAF）。</div>
+                    </div>
+                    <div class="alert alert-light border" id="recent-locations">
+                        <strong>提示：</strong> 将相机或读卡器挂载的目录粘贴到上方，或输入本地文件夹完整路径。
+                    </div>
+                </div>
+
+                <!-- Step 2: Preview -->
+                <div id="step-2" class="step-content d-none">
+                    <div id="scan-loading" class="text-center py-5">
+                        <div class="spinner-border text-primary" role="status"></div>
+                        <p class="mt-2 text-muted">正在扫描目录...请稍候</p>
+                    </div>
+
+                    <div id="scan-result" class="d-none">
+                        <div class="row g-3 mb-4">
+                            <div class="col-md-3">
+                                <div class="stat-card">
+                                    <div class="stat-value" id="stat-total">0</div>
+                                    <div class="stat-label">可导入文件</div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="stat-card">
+                                    <div class="stat-value" id="stat-raw">0</div>
+                                    <div class="stat-label">RAW 文件</div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="stat-card">
+                                    <div class="stat-value" id="stat-jpeg">0</div>
+                                    <div class="stat-label">JPEG 文件</div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="stat-card">
+                                    <div class="stat-value" id="stat-size">0</div>
+                                    <div class="stat-label">总大小 (MB)</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <strong>文件类型分布：</strong>
+                            <div id="stat-exts" class="mt-2"></div>
+                        </div>
+
+                        <div class="mb-3">
+                            <strong>示例文件：</strong>
+                            <ul class="list-unstyled text-muted mt-2" id="stat-samples">
+                            </ul>
+                        </div>
+                    </div>
+
+                    <div id="scan-error" class="alert alert-danger d-none"></div>
+                </div>
+
+                <!-- Step 3: Options -->
+                <div id="step-3" class="step-content d-none">
+                    <div class="row g-4">
+                        <div class="col-md-6">
+                            <div class="card border">
+                                <div class="card-body">
+                                    <h6 class="card-title fw-bold"><i class="bi bi-folder-symlink"></i> 扫描范围</h6>
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" id="opt-recursive" checked>
+                                        <label class="form-check-label" for="opt-recursive">递归扫描子目录</label>
+                                    </div>
+                                    <p class="small text-muted mt-2 mb-0">关闭后只扫描当前目录一层，适合已经按日期分好文件夹的场景。</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="card border">
+                                <div class="card-body">
+                                    <h6 class="card-title fw-bold"><i class="bi bi-cpu"></i> 识别处理</h6>
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" id="opt-recognition" checked>
+                                        <label class="form-check-label" for="opt-recognition">导入后立即运行识别与评分</label>
+                                    </div>
+                                    <p class="small text-muted mt-2 mb-0">包含鸟类检测、物种识别、7维画质评分和连拍分组。首次运行较慢。</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="alert alert-info mt-4">
+                        <strong>导入说明：</strong>
+                        <ul class="mb-0 mt-1">
+                            <li>程序会读取原始文件的 EXIF 元数据（拍摄时间、器材等）</li>
+                            <li>照片会去重：相同文件内容的图片不会重复导入</li>
+                            <li>识别完成后，裁切副本会按日期/鸟种规则归档到配置的输出目录</li>
+                            <li>原始文件不会被移动或删除</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Step 4: Execute -->
+                <div id="step-4" class="step-content d-none">
+                    <div class="mb-3">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <span class="fw-bold" id="run-status">准备导入...</span>
+                            <span class="text-muted small" id="progress-text"></span>
+                        </div>
+                        <div class="progress" style="height: 24px;">
+                            <div id="progress-bar" class="progress-bar progress-bar-striped progress-bar-animated bg-primary" role="progressbar" style="width: 0%;">0%</div>
+                        </div>
+                    </div>
+
+                    <div class="log-console mb-3" id="log-console"></div>
+
+                    <div id="run-actions" class="d-flex gap-2 d-none">
+                        <a href="/select" class="btn btn-success"><i class="bi bi-check-lg"></i> 前往选片</a>
+                        <a href="/gallery" class="btn btn-primary"><i class="bi bi-images"></i> 前往图库</a>
+                        <a href="/import" class="btn btn-outline-secondary">导入其他目录</a>
+                    </div>
+
+                    <div id="run-error" class="alert alert-danger d-none"></div>
+                </div>
+
+                <!-- Navigation buttons -->
+                <div class="d-flex justify-content-between mt-4 pt-3 border-top">
+                    <button id="btn-prev" class="btn btn-outline-secondary" onclick="prevStep()" disabled>上一步</button>
+                    <button id="btn-next" class="btn btn-primary" onclick="nextStep()" disabled>下一步</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/lib/js/bootstrap.bundle.min.js"></script>
+    <script>
+        let currentStep = 1;
+        let scanData = null;
+        let statusInterval = null;
+        let ws = null;
+
+        function setStep(step) {
+            currentStep = step;
+            document.querySelectorAll('.step-content').forEach(el => el.classList.add('d-none'));
+            document.getElementById(`step-${step}`).classList.remove('d-none');
+
+            document.querySelectorAll('.stepper .step').forEach(el => {
+                const s = parseInt(el.dataset.step);
+                el.classList.remove('active', 'done');
+                if (s < step) el.classList.add('done');
+                if (s === step) el.classList.add('active');
+            });
+
+            document.getElementById('btn-prev').disabled = step === 1;
+            const nextBtn = document.getElementById('btn-next');
+            if (step === 1) {
+                nextBtn.textContent = '扫描';
+                nextBtn.disabled = !document.getElementById('folder-input').value.trim();
+            } else if (step === 2) {
+                nextBtn.textContent = '导入选项';
+                nextBtn.disabled = !scanData || scanData.total_files === 0;
+            } else if (step === 3) {
+                nextBtn.textContent = '开始导入';
+                nextBtn.disabled = false;
+            } else if (step === 4) {
+                nextBtn.classList.add('d-none');
+                document.getElementById('btn-prev').classList.add('d-none');
+            }
+        }
+
+        function nextStep() {
+            if (currentStep === 1) {
+                scanFolder();
+            } else if (currentStep === 2) {
+                setStep(3);
+            } else if (currentStep === 3) {
+                setStep(4);
+                startImport();
+            }
+        }
+
+        function prevStep() {
+            if (currentStep > 1) setStep(currentStep - 1);
+        }
+
+        document.getElementById('folder-input').addEventListener('input', function () {
+            if (currentStep === 1) {
+                document.getElementById('btn-next').disabled = !this.value.trim();
+            }
+        });
+
+        async function scanFolder() {
+            const folder = document.getElementById('folder-input').value.trim();
+            if (!folder) return;
+
+            setStep(2);
+            document.getElementById('scan-loading').classList.remove('d-none');
+            document.getElementById('scan-result').classList.add('d-none');
+            document.getElementById('scan-error').classList.add('d-none');
+
+            try {
+                const res = await fetch('/api/import/scan', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ folder, recursive: true })
+                });
+                const json = await res.json();
+                if (json.status !== 'success') throw new Error(json.detail || '扫描失败');
+                scanData = json.data;
+                renderScanResult(scanData);
+                document.getElementById('scan-loading').classList.add('d-none');
+                document.getElementById('scan-result').classList.remove('d-none');
+                setTimeout(() => setStep(3), 800);
+            } catch (e) {
+                document.getElementById('scan-loading').classList.add('d-none');
+                const err = document.getElementById('scan-error');
+                err.textContent = '扫描失败：' + e.message;
+                err.classList.remove('d-none');
+            }
+        }
+
+        function renderScanResult(data) {
+            document.getElementById('stat-total').textContent = data.total_files;
+            document.getElementById('stat-raw').textContent = data.raw_files;
+            document.getElementById('stat-jpeg').textContent = data.jpeg_files;
+            document.getElementById('stat-size').textContent = data.total_size_mb;
+
+            const extContainer = document.getElementById('stat-exts');
+            extContainer.innerHTML = '';
+            Object.entries(data.extensions || {}).forEach(([ext, count]) => {
+                const badge = document.createElement('span');
+                badge.className = 'badge bg-secondary me-1 ext-badge';
+                badge.textContent = `${ext.toUpperCase()} ${count}`;
+                extContainer.appendChild(badge);
+            });
+
+            const sampleContainer = document.getElementById('stat-samples');
+            sampleContainer.innerHTML = '';
+            (data.sample_files || []).slice(0, 5).forEach(path => {
+                const li = document.createElement('li');
+                li.textContent = path;
+                sampleContainer.appendChild(li);
+            });
+        }
+
+        async function startImport() {
+            const folder = document.getElementById('folder-input').value.trim();
+            const recursive = document.getElementById('opt-recursive').checked;
+            const runRecognition = document.getElementById('opt-recognition').checked;
+
+            document.getElementById('run-status').textContent = '正在导入...';
+            document.getElementById('progress-bar').style.width = '0%';
+            document.getElementById('progress-bar').textContent = '0%';
+            connectWebSocket();
+
+            try {
+                const res = await fetch('/api/import/start', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ folder, recursive, run_recognition: runRecognition })
+                });
+                const json = await res.json();
+                if (json.status !== 'success') throw new Error(json.detail || '启动失败');
+                pollStatus();
+            } catch (e) {
+                document.getElementById('run-status').textContent = '启动失败';
+                const err = document.getElementById('run-error');
+                err.textContent = e.message;
+                err.classList.remove('d-none');
+                document.getElementById('progress-bar').classList.remove('progress-bar-animated');
+            }
+        }
+
+        function connectWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            try {
+                ws = new WebSocket(`${protocol}//${window.location.host}/ws/progress`);
+                ws.onmessage = (event) => {
+                    const data = JSON.parse(event.data);
+                    if (data.log) appendLog(data.log);
+                    if (data.progress) updateProgress(data.processed, data.total);
+                };
+            } catch (e) {
+                console.warn('WebSocket not available, falling back to polling', e);
+            }
+        }
+
+        function pollStatus() {
+            if (statusInterval) clearInterval(statusInterval);
+            statusInterval = setInterval(async () => {
+                try {
+                    const res = await fetch('/api/import/status');
+                    const data = await res.json();
+                    const consoleEl = document.getElementById('log-console');
+                    consoleEl.innerHTML = '';
+                    (data.logs || []).forEach(line => appendLog(line, true));
+                    consoleEl.scrollTop = consoleEl.scrollHeight;
+
+                    if (!data.is_running) {
+                        clearInterval(statusInterval);
+                        document.getElementById('run-status').textContent = '导入完成';
+                        document.getElementById('progress-bar').style.width = '100%';
+                        document.getElementById('progress-bar').textContent = '100%';
+                        document.getElementById('progress-bar').classList.remove('progress-bar-animated');
+                        document.getElementById('run-actions').classList.remove('d-none');
+                        if (ws) ws.close();
+                    }
+                } catch (e) {
+                    console.error('Status poll failed', e);
+                }
+            }, 1500);
+        }
+
+        function updateProgress(processed, total) {
+            if (!total) return;
+            const pct = Math.min(100, Math.round((processed / total) * 100));
+            document.getElementById('progress-bar').style.width = pct + '%';
+            document.getElementById('progress-bar').textContent = pct + '%';
+            document.getElementById('progress-text').textContent = `${processed} / ${total}`;
+        }
+
+        function appendLog(line, batch = false) {
+            const consoleEl = document.getElementById('log-console');
+            const div = document.createElement('div');
+            div.textContent = line;
+            consoleEl.appendChild(div);
+            if (!batch) consoleEl.scrollTop = consoleEl.scrollHeight;
+        }
+
+        // Initialize
+        setStep(1);
+    </script>
+</body>
+</html>

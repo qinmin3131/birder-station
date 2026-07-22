@@ -110,17 +110,34 @@
 - [x] 完善元数据写入并接入 pipeline 与 Web
 - [x] 实现真正的连拍分组（基于 EXIF 时间窗口）
 - [x] 在选片工作台应用连拍分组
+- [x] 实现照片导入 Web 流程
 - [ ] 实现选片大图复核界面（检测框/AF点/质量分项）
 - [x] 决定飞版判断策略：暂时保留当前自动飞版逻辑，后续调整
 
 ### 文件变更（本次未提交）
-- `src/db/models.py`
-- `src/db/repository.py`
-- `src/metadata/ioc_manager.py`
-- `src/metadata/exif_writer.py`
-- `src/pipeline_runner.py`
-- `src/web/app.py`
-- `src/web/templates/select.html`
-- `tests/test_db_manager.py`
-- `tests/test_pipeline_logic.py`
+- `src/web/import_service.py`（新建）
+- `src/web/task_manager.py`（添加 `start_import` 与 `_run_import_thread`）
+- `src/web/app.py`（添加 `/import` 页面及扫描/启动/状态 API）
+- `src/web/templates/import.html`（新建）
+- `src/web/templates/select.html`、`gallery.html`、`guide.html`、`admin.html`、`index.html`（导航栏增加导入入口）
+- `tests/test_web_import.py`（新建）
 - `.context/worklog.md`（本文件）
+
+8. **照片导入 Web 流程**
+   - 服务层：
+     - 新建 `src/web/import_service.py`：`scan_folder()` 扫描目录并统计可导入文件，`start_import()` 启动后台导入任务，`get_status()` 返回状态
+   - 任务层：
+     - `src/web/task_manager.py` 新增 `start_import()` / `_run_import_thread()`：先索引照片，再根据选项运行完整识别 Pipeline（检测、识别、评分、分组）
+   - Web 路由：
+     - `src/web/app.py` 新增 `/import` 页面
+     - 新增 `/api/import/scan` 扫描目录
+     - 新增 `/api/import/start` 启动后台导入
+     - 新增 `/api/import/status` 查询导入状态
+   - 前端：
+     - 新建 `src/web/templates/import.html`：四步引导式界面（选择源目录 → 扫描预览 → 导入选项 → 执行进度），参考 Lightroom 导入风格
+     - 支持递归扫描、选择是否立即运行识别、实时进度条和日志、WebSocket 推送、完成跳转
+     - 在 `select.html`、`gallery.html`、`guide.html`、`admin.html`、`index.html` 导航栏增加导入入口
+   - 测试：
+     - 新建 `tests/test_web_import.py` 覆盖扫描统计、启动成功/失败、状态查询等 8 个用例
+     - 完整测试套件：330 passed, 1 skipped
+   - 提交 `TBD`：功能: 实现照片导入 Web 流程

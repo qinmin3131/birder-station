@@ -113,6 +113,85 @@ class TaskManager:
             self.is_running = False
             log_capture.removeHandler(handler)
 
+    def start_import(self, folder_path: str, recursive: bool = True, run_recognition: bool = True, config: dict = None):
+        """Start a guided import task: index photos then optionally run recognition pipeline."""
+        logger.info(
+            f"[TaskManager] start_import called with path={folder_path}, recursive={recursive}, run_recognition={run_recognition}"
+        )
+        if self.is_running:
+            logger.warning("[TaskManager] Task already running, rejecting import request")
+            return False
+
+        self.is_running = True
+        self.should_stop = False
+        self.logs = ["开始导入照片..."]
+        logger.info("[TaskManager] Import flag set, starting thread...")
+
+        thread = threading.Thread(
+            target=self._run_import_thread,
+            args=(folder_path, recursive, run_recognition, config),
+            daemon=True,
+        )
+        thread.start()
+        logger.info("[TaskManager] Import thread started, returning success")
+        return True
+
+    def _run_import_thread(self, folder_path: str, recursive: bool, run_recognition: bool, config: dict):
+        log_capture = logging.getLogger()
+        handler = ListLogHandler(self.logs)
+        try:
+            os.chdir(str(BASE_DIR))
+            log_capture.addHandler(handler)
+
+            # Step 1: Index photos
+            self.logs.append("正在扫描并索引照片...")
+            from src.db.models import init_database as init_sqlalchemy_db, create_engine
+            from src.db.repository import PhotoRepository
+            from sqlalchemy.orm import sessionmaker
+            from src.core.indexer import PhotoIndexer
+
+            db_path = config.get("paths", {}).get("db_path", "data/birder.db") if config else "data/birder.db"
+            db_path = Path(db_path)
+            db_path.parent.mkdir(parents=True, exist_ok=True)
+            engine = create_engine(f"sqlite:///{db_path}")
+            init_sqlalchemy_db(engine)
+            Session = sessionmaker(bind=engine)
+            session = Session()
+            try:
+                supported_formats = config.get("paths", {}).get("supported_formats") if config else None
+                indexer = PhotoIndexer(PhotoRepository(session), supported_formats=set(supported_formats) if supported_formats else None)
+                result = indexer.index_folder_with_stats(Path(folder_path), recursive=recursive)
+                self.logs.append(
+                    f"索引完成：新增 {result['indexed']} 张，跳过重复 {result['skipped']} 张，失败 {result['errors']} 张"
+                )
+            finally:
+                session.close()
+                engine.dispose()
+
+            # Step 2: Run recognition pipeline if requested
+            if run_recognition:
+                self.logs.append("正在初始化识别 Pipeline...")
+                runner = WingScribePipeline(str(BASE_DIR / "config/settings.yaml"), init_timeout=120)
+
+                def progress_callback(processed, total):
+                    self.logs.append(f"[PROGRESS] {processed}/{total}")
+
+                runner.set_progress_callback(progress_callback)
+                runner.set_stop_checker(lambda: self.should_stop)
+
+                self.logs.append("开始识别、评分和连拍分组...")
+                runner.run_by_folders([folder_path], recursive=recursive)
+                self.logs.append("导入完成！")
+                logger.info("Import and pipeline execution completed.")
+            else:
+                self.logs.append("导入完成（未运行识别）")
+        except Exception as e:
+            logger.error(f"Import failed: {e}")
+            self.logs.append(f"错误: {str(e)}")
+        finally:
+            self.is_running = False
+            log_capture.removeHandler(handler)
+
     def _run_pipeline_thread(self, start_date, end_date):
         log_capture = logging.getLogger()
         handler = ListLogHandler(self.logs)

@@ -32,6 +32,7 @@ from src.web.task_manager import TaskManager as ExtractedTaskManager
 from src.web import taxonomy_service
 from src.web import pipeline_service
 from src.web import admin_service
+from src.web import import_service
 from src.web.config_helpers import (
     get_config_definition,
     get_nested_value,
@@ -67,6 +68,9 @@ app = FastAPI(lifespan=lifespan)
 
 # Load config
 config = load_config(str(BASE_DIR / "config" / "settings.yaml"), str(BASE_DIR / "config" / "secrets.yaml"))
+
+# Initialize import service after config is loaded
+import_service_instance = import_service.ImportService(task_manager, config)
 
 # Initialize metadata writer
 exif_writer = ExifWriter()
@@ -943,6 +947,58 @@ def write_gallery_metadata(filter: str = "", date: str = ""):
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         session.close()
+
+
+@app.get("/import", response_class=HTMLResponse)
+def import_page(request: Request):
+    """照片导入向导：选择源目录、扫描预览、启动导入。"""
+    return templates.TemplateResponse(
+        "import.html",
+        {
+            "request": request,
+            "default_source_dir": config.get("paths", {}).get("source_dir", ""),
+        },
+    )
+
+
+@app.post("/api/import/scan")
+async def import_scan(data: dict):
+    """扫描指定目录，返回可导入文件统计。"""
+    try:
+        folder = data.get("folder", "")
+        recursive = data.get("recursive", True)
+        if not folder:
+            raise HTTPException(status_code=400, detail="请提供文件夹路径")
+        result = import_service_instance.scan_folder(folder, recursive=recursive)
+        return {"status": "success", "data": result}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Import scan failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/import/start")
+async def import_start(data: dict):
+    """启动照片导入任务（索引 + 可选识别）。"""
+    folder = data.get("folder", "")
+    recursive = data.get("recursive", True)
+    run_recognition = data.get("run_recognition", True)
+    if not folder:
+        raise HTTPException(status_code=400, detail="请提供文件夹路径")
+
+    result = import_service_instance.start_import(
+        folder, recursive=recursive, run_recognition=run_recognition
+    )
+    if result.get("status") == "error":
+        raise HTTPException(status_code=409, detail=result["message"])
+    return {"status": "success", "message": "Import started"}
+
+
+@app.get("/api/import/status")
+async def import_status():
+    """返回当前导入任务状态。"""
+    return import_service_instance.get_status()
 
 
 @app.get("/gallery", response_class=HTMLResponse)
