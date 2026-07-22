@@ -7,12 +7,13 @@ import asyncio
 import json
 from contextlib import asynccontextmanager
 from pathlib import Path
-from fastapi import FastAPI, Request, HTTPException, WebSocket
+from urllib.parse import urlencode
+from fastapi import FastAPI, Request, HTTPException, WebSocket, Query
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, func
 from sqlalchemy.orm import sessionmaker
 from typing import Optional, List, Any, Dict
 
@@ -1111,26 +1112,83 @@ async def import_status():
 
 
 @app.get("/gallery", response_class=HTMLResponse)
-def gallery_page(request: Request, q: str = "", filter: str = "", date: str = "", limit: int = 50, offset: int = 0):
-    """图库浏览：按时间/地点/鸟种筛选。"""
+def gallery_page(
+    request: Request,
+    q: str = "",
+    view: str = "",
+    filter: str = "",  # 保留旧参数兼容
+    date: str = "",
+    date_from: str = "",
+    date_to: str = "",
+    species: List[str] = Query(default=[]),
+    families: List[str] = Query(default=[]),
+    locations: List[str] = Query(default=[]),
+    outing_id: int = 0,
+    limit: int = 50,
+    offset: int = 0,
+):
+    """图库浏览：按时间/地点/鸟种/视图筛选。"""
     session = get_sqlalchemy_session()
     try:
-        query = session.query(Photo)
+        # 兼容旧 filter 参数
+        effective_view = view or filter
+        if effective_view not in ("", "all", "selected", "unselected", "uncertain"):
+            effective_view = ""
+
+        # Build base query, optionally joining Species for family filtering
+        if families:
+            query = session.query(Photo).join(Species, Photo.scientific_name == Species.scientific_name, isouter=True)
+        else:
+            query = session.query(Photo)
+
         if q:
             query = query.filter(
                 (Photo.primary_bird_cn.like(f"%{q}%")) |
                 (Photo.scientific_name.like(f"%{q}%")) |
                 (Photo.location_tag.like(f"%{q}%")) |
-                (Photo.captured_date.like(f"%{q}%"))
+                (Photo.captured_date.like(f"%{q}%")) |
+                (Photo.filename.like(f"%{q}%"))
             )
-        if filter == "uncertain":
+
+        if effective_view == "uncertain":
             query = query.filter(
                 (Photo.primary_bird_cn == "待确认鸟种") | (Photo.scientific_name == "Uncertain")
             )
-        elif filter == "selected":
+        elif effective_view == "selected":
             query = query.filter(Photo.is_selected == True)
+        elif effective_view == "unselected":
+            query = query.filter(Photo.is_selected == False)
+
+        # Single date (legacy) or date range
         if date:
             query = query.filter(Photo.captured_date == date)
+        else:
+            if date_from:
+                query = query.filter(Photo.captured_date >= date_from)
+            if date_to:
+                query = query.filter(Photo.captured_date <= date_to)
+
+        # Species filter (multi-select)
+        selected_species = [s.strip() for s in species if s.strip()]
+        if selected_species:
+            query = query.filter(
+                Photo.primary_bird_cn.in_(selected_species) |
+                Photo.scientific_name.in_(selected_species)
+            )
+
+        # Family filter (multi-select, requires join)
+        selected_families = [f.strip() for f in families if f.strip()]
+        if selected_families:
+            query = query.filter(Species.family_cn.in_(selected_families))
+
+        # Location filter (multi-select)
+        selected_locations = [loc.strip() for loc in locations if loc.strip()]
+        if selected_locations:
+            query = query.filter(Photo.location_tag.in_(selected_locations))
+
+        # Outing filter (placeholder for future integration)
+        if outing_id:
+            query = query.filter(Photo.outing_id == outing_id)
 
         total_count = query.count()
         photos = query.order_by(Photo.captured_date.desc(), Photo.id.desc()).offset(offset).limit(limit).all()
@@ -1152,10 +1210,52 @@ def gallery_page(request: Request, q: str = "", filter: str = "", date: str = ""
                 "web_raw_path": resolve_web_path(p.original_path) if p.original_path else None,
             })
 
+        # Sidebar options
         available_dates = [d[0] for d in session.query(Photo.captured_date).distinct().order_by(Photo.captured_date.desc()).all() if d[0]]
+        available_species = [
+            {"cn": cn, "sci": sci, "count": count}
+            for cn, sci, count in session.query(
+                Photo.primary_bird_cn, Photo.scientific_name, func.count(Photo.id)
+            ).group_by(Photo.primary_bird_cn, Photo.scientific_name).order_by(func.count(Photo.id).desc()).all()
+            if cn or sci
+        ]
+        available_families = [
+            {"family_cn": family_cn, "count": count}
+            for family_cn, count in session.query(
+                Species.family_cn, func.count(Species.id)
+            ).filter(Species.photo_count > 0).group_by(Species.family_cn).order_by(func.count(Species.id).desc()).all()
+            if family_cn
+        ]
+        available_locations = [
+            {"tag": tag, "count": count}
+            for tag, count in session.query(
+                Photo.location_tag, func.count(Photo.id)
+            ).group_by(Photo.location_tag).order_by(func.count(Photo.id).desc()).all()
+            if tag
+        ]
 
         has_next = (offset + limit) < total_count
         has_prev = offset > 0
+
+        # Build a query string for view-switch links and pagination that preserves
+        # all active filters except the one being switched.
+        filter_params = {
+            "q": q,
+            "date_from": date_from,
+            "date_to": date_to,
+        }
+        for value in selected_species:
+            filter_params.setdefault("species", []).append(value)
+        for value in selected_families:
+            filter_params.setdefault("families", []).append(value)
+        for value in selected_locations:
+            filter_params.setdefault("locations", []).append(value)
+        if outing_id:
+            filter_params["outing_id"] = outing_id
+        if limit != 50:
+            filter_params["limit"] = limit
+        filter_params = {k: v for k, v in filter_params.items() if v}
+        base_query = urlencode(filter_params, doseq=True)
 
         return templates.TemplateResponse(
             request, "gallery.html",
@@ -1163,12 +1263,21 @@ def gallery_page(request: Request, q: str = "", filter: str = "", date: str = ""
                 "request": request,
                 "photos": display_photos,
                 "query": q,
-                "current_filter": filter,
+                "current_view": effective_view,
                 "current_date": date,
+                "date_from": date_from,
+                "date_to": date_to,
+                "selected_species": selected_species,
+                "selected_families": selected_families,
+                "selected_locations": selected_locations,
                 "limit": limit,
                 "offset": offset,
                 "total_count": total_count,
                 "available_dates": available_dates,
+                "available_species": available_species,
+                "available_families": available_families,
+                "available_locations": available_locations,
+                "base_query": base_query,
                 "has_next": has_next,
                 "has_prev": has_prev,
                 "next_offset": offset + limit,

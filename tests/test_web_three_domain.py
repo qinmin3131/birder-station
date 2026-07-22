@@ -1,6 +1,7 @@
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import ANY, patch
+from urllib.parse import parse_qs
 
 import pytest
 from sqlalchemy import create_engine
@@ -101,7 +102,21 @@ def test_gallery_page_renders_template(tmp_path, monkeypatch):
     templates = TemplateRecorder()
     monkeypatch.setattr(web_app, "templates", templates)
 
-    result = web_app.gallery_page(request=object(), q="", filter="", date="", limit=50, offset=0)
+    result = web_app.gallery_page(
+        request=object(),
+        q="",
+        view="",
+        filter="",
+        date="",
+        date_from="",
+        date_to="",
+        species=[""],
+        families=[""],
+        locations=[""],
+        outing_id=0,
+        limit=50,
+        offset=0,
+    )
 
     assert result == {
         "template": "gallery.html",
@@ -109,12 +124,21 @@ def test_gallery_page_renders_template(tmp_path, monkeypatch):
             "request": ANY,
             "photos": [],
             "query": "",
-            "current_filter": "",
+            "current_view": "",
             "current_date": "",
+            "date_from": "",
+            "date_to": "",
+            "selected_species": [],
+            "selected_families": [],
+            "selected_locations": [],
             "limit": 50,
             "offset": 0,
             "total_count": 0,
             "available_dates": [],
+            "available_species": [],
+            "available_families": [],
+            "available_locations": [],
+            "base_query": "",
             "has_next": False,
             "has_prev": False,
             "next_offset": 50,
@@ -135,10 +159,224 @@ def test_gallery_page_filters_selected(tmp_path, monkeypatch):
     templates = TemplateRecorder()
     monkeypatch.setattr(web_app, "templates", templates)
 
-    web_app.gallery_page(request=object(), q="", filter="selected", date="", limit=50, offset=0)
+    web_app.gallery_page(
+        request=object(),
+        q="",
+        view="",
+        filter="selected",
+        date="",
+        date_from="",
+        date_to="",
+        species="",
+        families="",
+        locations="",
+        outing_id=0,
+        limit=50,
+        offset=0,
+    )
     context = templates.calls[0]["context"]
     assert len(context["photos"]) == 1
     assert context["photos"][0]["is_selected"] is True
+
+
+def test_gallery_page_filters_date_range(tmp_path, monkeypatch):
+    db_path = _create_temp_db(tmp_path)
+    monkeypatch.setattr(web_app, "db_path", Path(db_path))
+    session, _ = _create_session(db_path)
+    session.add(Photo(file_path="a.jpg", filename="a.jpg", captured_date="2026-07-20"))
+    session.add(Photo(file_path="b.jpg", filename="b.jpg", captured_date="2026-07-25"))
+    session.commit()
+    session.close()
+
+    templates = TemplateRecorder()
+    monkeypatch.setattr(web_app, "templates", templates)
+
+    web_app.gallery_page(
+        request=object(),
+        q="",
+        view="",
+        filter="",
+        date="",
+        date_from="2026-07-18",
+        date_to="2026-07-22",
+        species="",
+        families="",
+        locations="",
+        outing_id=0,
+        limit=50,
+        offset=0,
+    )
+    context = templates.calls[0]["context"]
+    assert len(context["photos"]) == 1
+    assert context["photos"][0]["captured_date"] == "2026-07-20"
+
+
+def test_gallery_page_filters_species_and_family(tmp_path, monkeypatch):
+    db_path = _create_temp_db(tmp_path)
+    monkeypatch.setattr(web_app, "db_path", Path(db_path))
+    session, _ = _create_session(db_path)
+    session.add(Species(scientific_name="Passer montanus", chinese_name="麻雀", family_cn="雀科", photo_count=1))
+    session.add(Species(scientific_name="Turdus merula", chinese_name="乌鸫", family_cn="鸫科", photo_count=1))
+    session.add(Photo(file_path="a.jpg", filename="a.jpg", primary_bird_cn="麻雀", scientific_name="Passer montanus"))
+    session.add(Photo(file_path="b.jpg", filename="b.jpg", primary_bird_cn="乌鸫", scientific_name="Turdus merula"))
+    session.commit()
+    session.close()
+
+    templates = TemplateRecorder()
+    monkeypatch.setattr(web_app, "templates", templates)
+
+    web_app.gallery_page(
+        request=object(),
+        q="",
+        view="",
+        filter="",
+        date="",
+        date_from="",
+        date_to="",
+        species=["麻雀"],
+        families=[""],
+        locations=[""],
+        outing_id=0,
+        limit=50,
+        offset=0,
+    )
+    context = templates.calls[0]["context"]
+    assert len(context["photos"]) == 1
+    assert context["photos"][0]["primary_bird_cn"] == "麻雀"
+
+    web_app.gallery_page(
+        request=object(),
+        q="",
+        view="",
+        filter="",
+        date="",
+        date_from="",
+        date_to="",
+        species=[""],
+        families=["鸫科"],
+        locations=[""],
+        outing_id=0,
+        limit=50,
+        offset=0,
+    )
+    context = templates.calls[-1]["context"]
+    assert len(context["photos"]) == 1
+    assert context["photos"][0]["primary_bird_cn"] == "乌鸫"
+
+
+def test_gallery_page_filters_locations_and_unselected_view(tmp_path, monkeypatch):
+    db_path = _create_temp_db(tmp_path)
+    monkeypatch.setattr(web_app, "db_path", Path(db_path))
+    session, _ = _create_session(db_path)
+    session.add(Photo(file_path="a.jpg", filename="a.jpg", location_tag="福州-森林公园", is_selected=True))
+    session.add(Photo(file_path="b.jpg", filename="b.jpg", location_tag="厦门-鼓浪屿", is_selected=False))
+    session.commit()
+    session.close()
+
+    templates = TemplateRecorder()
+    monkeypatch.setattr(web_app, "templates", templates)
+
+    web_app.gallery_page(
+        request=object(),
+        q="",
+        view="",
+        filter="",
+        date="",
+        date_from="",
+        date_to="",
+        species=[""],
+        families=[""],
+        locations=["福州-森林公园"],
+        outing_id=0,
+        limit=50,
+        offset=0,
+    )
+    context = templates.calls[0]["context"]
+    assert len(context["photos"]) == 1
+    assert context["photos"][0]["location_tag"] == "福州-森林公园"
+
+    web_app.gallery_page(
+        request=object(),
+        q="",
+        view="unselected",
+        filter="",
+        date="",
+        date_from="",
+        date_to="",
+        species=[""],
+        families=[""],
+        locations=[""],
+        outing_id=0,
+        limit=50,
+        offset=0,
+    )
+    context = templates.calls[-1]["context"]
+    assert len(context["photos"]) == 1
+    assert context["photos"][0]["is_selected"] is False
+
+
+def test_gallery_page_search_includes_filename(tmp_path, monkeypatch):
+    db_path = _create_temp_db(tmp_path)
+    monkeypatch.setattr(web_app, "db_path", Path(db_path))
+    session, _ = _create_session(db_path)
+    session.add(Photo(file_path="sparrow.jpg", filename="sparrow.jpg", primary_bird_cn="麻雀"))
+    session.add(Photo(file_path="thrush.jpg", filename="thrush.jpg", primary_bird_cn="乌鸫"))
+    session.commit()
+    session.close()
+
+    templates = TemplateRecorder()
+    monkeypatch.setattr(web_app, "templates", templates)
+
+    web_app.gallery_page(
+        request=object(),
+        q="sparrow",
+        view="",
+        filter="",
+        date="",
+        date_from="",
+        date_to="",
+        species="",
+        families="",
+        locations="",
+        outing_id=0,
+        limit=50,
+        offset=0,
+    )
+    context = templates.calls[0]["context"]
+    assert len(context["photos"]) == 1
+    assert context["photos"][0]["filename"] == "sparrow.jpg"
+
+
+def test_gallery_page_pagination_preserves_filters(tmp_path, monkeypatch):
+    db_path = _create_temp_db(tmp_path)
+    monkeypatch.setattr(web_app, "db_path", Path(db_path))
+    templates = TemplateRecorder()
+    monkeypatch.setattr(web_app, "templates", templates)
+
+    web_app.gallery_page(
+        request=object(),
+        q="",
+        view="selected",
+        filter="",
+        date="",
+        date_from="2026-07-01",
+        date_to="2026-07-31",
+        species=["麻雀"],
+        families=[""],
+        locations=["福州"],
+        outing_id=0,
+        limit=20,
+        offset=40,
+    )
+    context = templates.calls[0]["context"]
+    parsed = parse_qs(context["base_query"])
+    assert parsed.get("date_from") == ["2026-07-01"]
+    assert parsed.get("date_to") == ["2026-07-31"]
+    assert parsed.get("species") == ["麻雀"]
+    assert parsed.get("locations") == ["福州"]
+    assert parsed.get("limit") == ["20"]
+    assert context["next_offset"] == 60
+    assert context["prev_offset"] == 20
 
 
 def test_guide_page_renders_template(tmp_path, monkeypatch):

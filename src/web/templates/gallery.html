@@ -55,24 +55,82 @@
         <div class="row mb-3">
             <div class="col-12">
                 <div class="card">
-                    <div class="card-body d-flex flex-wrap gap-2 align-items-center">
-                        <span class="text-muted small">筛选：</span>
-                        <a href="/gallery" class="btn btn-sm btn-outline-secondary {{ 'active' if not current_filter and not current_date and not query else '' }}">全部</a>
-                        <a href="/gallery?filter=selected" class="btn btn-sm btn-outline-success {{ 'active' if current_filter == 'selected' else '' }}">已选中</a>
-                        <a href="/gallery?filter=uncertain" class="btn btn-sm btn-outline-warning {{ 'active' if current_filter == 'uncertain' else '' }}">待确认</a>
-                        <button class="btn btn-sm btn-info text-white" onclick="writeSelectedMetadata()">💾 写入选中照片元数据</button>
-                        <form class="d-flex gap-2 ms-auto" action="/gallery" method="get">
-                            <select class="form-select form-select-sm" name="date" onchange="this.form.submit()" style="width: auto;">
-                                <option value="">所有日期</option>
-                                {% for d in available_dates %}
-                                <option value="{{ d }}" {{ 'selected' if current_date == d }}>{{ d }}</option>
-                                {% endfor %}
-                            </select>
-                            <select class="form-select form-select-sm" name="limit" onchange="this.form.submit()" style="width: auto;">
-                                <option value="20" {{ 'selected' if limit == 20 }}>20</option>
-                                <option value="50" {{ 'selected' if limit == 50 }}>50</option>
-                                <option value="100" {{ 'selected' if limit == 100 }}>100</option>
-                            </select>
+                    <div class="card-body">
+                        <form id="filterForm" action="/gallery" method="get" class="row g-2 align-items-end">
+                            <!-- 视图切换 -->
+                            <div class="col-12 col-md-auto">
+                                <div class="btn-group btn-group-sm" role="group">
+                                    <a href="/gallery?{{ base_query|default('') }}" class="btn btn-outline-secondary {{ 'active' if not current_view else '' }}">全部</a>
+                                    <a href="/gallery?view=selected&amp;{{ base_query|default('') }}" class="btn btn-outline-success {{ 'active' if current_view == 'selected' else '' }}">已选中</a>
+                                    <a href="/gallery?view=unselected&amp;{{ base_query|default('') }}" class="btn btn-outline-primary {{ 'active' if current_view == 'unselected' else '' }}">未选中</a>
+                                    <a href="/gallery?view=uncertain&amp;{{ base_query|default('') }}" class="btn btn-outline-warning {{ 'active' if current_view == 'uncertain' else '' }}">待确认</a>
+                                </div>
+                            </div>
+
+                            <!-- 搜索 -->
+                            <div class="col-12 col-md-3">
+                                <input class="form-control form-control-sm" type="search" name="q" placeholder="搜索鸟种/地点/文件名/日期" value="{{ query }}">
+                            </div>
+
+                            <!-- 日期范围 -->
+                            <div class="col-6 col-md-2">
+                                <label class="form-label small text-muted mb-0">开始日期</label>
+                                <input type="date" class="form-control form-control-sm" name="date_from" value="{{ date_from }}">
+                            </div>
+                            <div class="col-6 col-md-2">
+                                <label class="form-label small text-muted mb-0">结束日期</label>
+                                <input type="date" class="form-control form-control-sm" name="date_to" value="{{ date_to }}">
+                            </div>
+
+                            <!-- 鸟种多选 -->
+                            <div class="col-6 col-md-2">
+                                <label class="form-label small text-muted mb-0">鸟种</label>
+                                <select class="form-select form-select-sm" name="species" multiple size="1" style="min-height: 2.5rem;">
+                                    {% for sp in available_species %}
+                                    <option value="{{ sp.cn if sp.cn else sp.sci }}" {{ 'selected' if (sp.cn in selected_species) or (sp.sci in selected_species) else '' }}>
+                                        {{ sp.cn }} ({{ sp.count }})
+                                    </option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+
+                            <!-- 科多选 -->
+                            <div class="col-6 col-md-2">
+                                <label class="form-label small text-muted mb-0">科</label>
+                                <select class="form-select form-select-sm" name="families" multiple size="1" style="min-height: 2.5rem;">
+                                    {% for fam in available_families %}
+                                    <option value="{{ fam.family_cn }}" {{ 'selected' if fam.family_cn in selected_families else '' }}>
+                                        {{ fam.family_cn }} ({{ fam.count }})
+                                    </option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+
+                            <!-- 地点多选 -->
+                            <div class="col-6 col-md-2">
+                                <label class="form-label small text-muted mb-0">地点</label>
+                                <select class="form-select form-select-sm" name="locations" multiple size="1" style="min-height: 2.5rem;">
+                                    {% for loc in available_locations %}
+                                    <option value="{{ loc.tag }}" {{ 'selected' if loc.tag in selected_locations else '' }}>
+                                        {{ loc.tag }} ({{ loc.count }})
+                                    </option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+
+                            <div class="col-6 col-md-auto d-flex gap-2">
+                                <button class="btn btn-sm btn-primary" type="submit">筛选</button>
+                                <a href="/gallery" class="btn btn-sm btn-outline-secondary">重置</a>
+                                <button class="btn btn-sm btn-info text-white" type="button" onclick="writeSelectedMetadata()">💾 写入选中照片元数据</button>
+                            </div>
+
+                            <div class="col-12 col-md-auto">
+                                <select class="form-select form-select-sm" name="limit" onchange="document.getElementById('filterForm').submit()" style="width: auto;">
+                                    <option value="20" {{ 'selected' if limit == 20 }}>20</option>
+                                    <option value="50" {{ 'selected' if limit == 50 }}>50</option>
+                                    <option value="100" {{ 'selected' if limit == 100 }}>100</option>
+                                </select>
+                            </div>
                         </form>
                     </div>
                 </div>
@@ -82,12 +140,16 @@
         <div class="status-bar">
             <span class="text-muted small">
                 显示 {{ offset + 1 }}-{{ offset + photos|length }} / 共 {{ total_count }} 张
-                {% if current_date %} | 日期：{{ current_date }} {% endif %}
+                {% if current_view %} | 视图：{{ current_view }} {% endif %}
                 {% if query %} | 搜索："{{ query }}" {% endif %}
+                {% if date_from or date_to %} | 日期：{{ date_from }} ~ {{ date_to }} {% endif %}
+                {% if selected_species %} | 鸟种：{{ selected_species|join('、') }} {% endif %}
+                {% if selected_families %} | 科：{{ selected_families|join('、') }} {% endif %}
+                {% if selected_locations %} | 地点：{{ selected_locations|join('、') }} {% endif %}
             </span>
             <div class="btn-group btn-group-sm">
-                <a href="/gallery?limit={{ limit }}&offset={{ prev_offset }}&filter={{ current_filter }}&date={{ current_date }}&q={{ query }}" class="btn btn-outline-secondary {% if not has_prev %}disabled{% endif %}">上一页</a>
-                <a href="/gallery?limit={{ limit }}&offset={{ next_offset }}&filter={{ current_filter }}&date={{ current_date }}&q={{ query }}" class="btn btn-outline-secondary {% if not has_next %}disabled{% endif %}">下一页</a>
+                <a href="/gallery?{{ base_query }}&offset={{ prev_offset }}{% if current_view %}&view={{ current_view }}{% endif %}" class="btn btn-outline-secondary {% if not has_prev %}disabled{% endif %}">上一页</a>
+                <a href="/gallery?{{ base_query }}&offset={{ next_offset }}{% if current_view %}&view={{ current_view }}{% endif %}" class="btn btn-outline-secondary {% if not has_next %}disabled{% endif %}">下一页</a>
             </div>
         </div>
 
@@ -134,8 +196,8 @@
 
         <div class="d-flex justify-content-center mt-4 mb-5">
             <div class="btn-group btn-group-sm">
-                <a href="/gallery?limit={{ limit }}&offset={{ prev_offset }}&filter={{ current_filter }}&date={{ current_date }}&q={{ query }}" class="btn btn-outline-secondary {% if not has_prev %}disabled{% endif %}">上一页</a>
-                <a href="/gallery?limit={{ limit }}&offset={{ next_offset }}&filter={{ current_filter }}&date={{ current_date }}&q={{ query }}" class="btn btn-outline-secondary {% if not has_next %}disabled{% endif %}">下一页</a>
+                <a href="/gallery?{{ base_query }}&offset={{ prev_offset }}{% if current_view %}&view={{ current_view }}{% endif %}" class="btn btn-outline-secondary {% if not has_prev %}disabled{% endif %}">上一页</a>
+                <a href="/gallery?{{ base_query }}&offset={{ next_offset }}{% if current_view %}&view={{ current_view }}{% endif %}" class="btn btn-outline-secondary {% if not has_next %}disabled{% endif %}">下一页</a>
             </div>
         </div>
     </div>
