@@ -984,11 +984,12 @@ async def import_start(data: dict):
     folder = data.get("folder", "")
     recursive = data.get("recursive", True)
     run_recognition = data.get("run_recognition", True)
+    overwrite = data.get("overwrite", False)
     if not folder:
         raise HTTPException(status_code=400, detail="请提供文件夹路径")
 
     result = import_service_instance.start_import(
-        folder, recursive=recursive, run_recognition=run_recognition
+        folder, recursive=recursive, run_recognition=run_recognition, overwrite=overwrite
     )
     if result.get("status") == "error":
         raise HTTPException(status_code=409, detail=result["message"])

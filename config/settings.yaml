@@ -9,6 +9,9 @@ processing:
   device: auto
   yolo_model: data/models/yolo26n.pt
   confidence_threshold: 0.5
+  target_size: 640
+  crop_padding: 200
+  blur_threshold: 40.0
 
 recognition:
   mode: local

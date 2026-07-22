@@ -113,10 +113,10 @@ class TaskManager:
             self.is_running = False
             log_capture.removeHandler(handler)
 
-    def start_import(self, folder_path: str, recursive: bool = True, run_recognition: bool = True, config: dict = None):
+    def start_import(self, folder_path: str, recursive: bool = True, run_recognition: bool = True, overwrite: bool = False, config: dict = None):
         """Start a guided import task: index photos then optionally run recognition pipeline."""
         logger.info(
-            f"[TaskManager] start_import called with path={folder_path}, recursive={recursive}, run_recognition={run_recognition}"
+            f"[TaskManager] start_import called with path={folder_path}, recursive={recursive}, run_recognition={run_recognition}, overwrite={overwrite}"
         )
         if self.is_running:
             logger.warning("[TaskManager] Task already running, rejecting import request")
@@ -129,14 +129,14 @@ class TaskManager:
 
         thread = threading.Thread(
             target=self._run_import_thread,
-            args=(folder_path, recursive, run_recognition, config),
+            args=(folder_path, recursive, run_recognition, overwrite, config),
             daemon=True,
         )
         thread.start()
         logger.info("[TaskManager] Import thread started, returning success")
         return True
 
-    def _run_import_thread(self, folder_path: str, recursive: bool, run_recognition: bool, config: dict):
+    def _run_import_thread(self, folder_path: str, recursive: bool, run_recognition: bool, overwrite: bool, config: dict):
         log_capture = logging.getLogger()
         handler = ListLogHandler(self.logs)
         try:
@@ -160,16 +160,16 @@ class TaskManager:
             try:
                 supported_formats = config.get("paths", {}).get("supported_formats") if config else None
                 indexer = PhotoIndexer(PhotoRepository(session), supported_formats=set(supported_formats) if supported_formats else None)
-                result = indexer.index_folder_with_stats(Path(folder_path), recursive=recursive)
+                result = indexer.index_folder_with_stats(Path(folder_path), recursive=recursive, overwrite=overwrite)
                 self.logs.append(
-                    f"索引完成：新增 {result['indexed']} 张，跳过重复 {result['skipped']} 张，失败 {result['errors']} 张"
+                    f"索引完成：新增 {result['indexed']} 张，跳过重复 {result['skipped']} 张，失败 {result['errors']} 张，覆盖 {result.get('overwritten', 0)} 张"
                 )
             finally:
                 session.close()
                 engine.dispose()
 
             # Step 2: Run recognition pipeline if requested
-            if run_recognition:
+            if run_recognition and result.get("photo_ids"):
                 self.logs.append("正在初始化识别 Pipeline...")
                 runner = WingScribePipeline(str(BASE_DIR / "config/settings.yaml"), init_timeout=120)
 
@@ -180,9 +180,12 @@ class TaskManager:
                 runner.set_stop_checker(lambda: self.should_stop)
 
                 self.logs.append("开始识别、评分和连拍分组...")
-                runner.run_by_folders([folder_path], recursive=recursive)
+                runner.run_by_photo_ids(result["photo_ids"])
                 self.logs.append("导入完成！")
                 logger.info("Import and pipeline execution completed.")
+            elif run_recognition:
+                self.logs.append("没有新增照片，跳过识别")
+                self.logs.append("导入完成！")
             else:
                 self.logs.append("导入完成（未运行识别）")
         except Exception as e:

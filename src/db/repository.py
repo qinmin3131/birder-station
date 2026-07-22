@@ -13,6 +13,15 @@ class PhotoRepository:
     def get_by_hash(self, file_hash: str) -> Optional[Photo]:
         return self.session.query(Photo).filter(Photo.file_hash == file_hash).first()
 
+    def get_by_path_and_name(self, file_path: str, filename: str) -> Optional[Photo]:
+        return self.session.query(Photo).filter(
+            Photo.file_path == file_path, Photo.filename == filename
+        ).first()
+
+    def delete(self, photo: Photo) -> None:
+        self.session.delete(photo)
+        self.session.commit()
+
     def add(self, photo: Photo) -> Photo:
         self.session.add(photo)
         self.session.commit()

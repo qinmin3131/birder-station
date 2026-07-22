@@ -742,7 +742,7 @@ def test_archive_item_normalizes_processed_extension_to_jpg(tmp_path):
     Path(pipeline.output_root).mkdir(parents=True, exist_ok=True)
     pipeline.db = SimpleNamespace(
         get_bird_info=lambda sci: {"chinese_name": "麻雀"},
-        add_photo_record=lambda **kwargs: None,
+        add_photo_record=lambda *args, **kwargs: None,
     )
     pipeline.exif_writer = SimpleNamespace(write_metadata=lambda path, meta: None)
     pipeline.path_generator = type("FakePathGenerator", (), {

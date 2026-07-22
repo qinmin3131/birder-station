@@ -164,12 +164,12 @@ class WingScribePipeline:
         else:
             db_path = Path(db_path_config)
 
-        # Path Generator - output.root_dir is now always absolute (required)
+        # Path Generator - output.root_dir is optional in new spec (index-only mode)
         paths_conf = self.config['paths']
         out_conf = paths_conf.get('output', {})
         output_root = out_conf.get('root_dir', '')
-        if not output_root:
-            raise ValueError("output.root_dir is required (must be absolute path)")
+        if output_root and not Path(output_root).is_absolute():
+            raise ValueError("output.root_dir must be absolute path if provided")
 
         self.db = IOCManager(
             str(db_path),
@@ -198,13 +198,13 @@ class WingScribePipeline:
 
         self.path_generator = PathGenerator(
             template=out_conf.get('structure_template', "{year}/{location}/{species_cn}/{filename}"),
-            output_root=output_root
-        )
+            output_root=output_root if output_root else "data/output"
+        ) if output_root else None
         self.write_back_raw = out_conf.get('write_back_to_source', False)
 
         # Store source_dir and output_root for relative path conversion and exclusion
         self.source_dir = source_dir
-        self.output_root = output_root  # Absolute path for exclusion
+        self.output_root = output_root  # Absolute path for exclusion, may be empty
         
         # Recognizer init lock
         self.batch_lock = threading.Lock()
@@ -256,8 +256,10 @@ class WingScribePipeline:
 
     def _emit_progress(self):
         """发送进度更新"""
-        if self._progress_callback and self.total_files > 0:
-            self._progress_callback(self.processed_count, self.total_files)
+        callback = getattr(self, '_progress_callback', None)
+        total = getattr(self, 'total_files', 0)
+        if callback and total > 0:
+            callback(self.processed_count, total)
 
     @property
     def detector(self):
@@ -477,6 +479,7 @@ class WingScribePipeline:
 
         quality_score = item.get('quality_score', 0)
         quality_details = item.get('quality_details', {})
+        candidates_data = []
 
         # Initialize default values
         is_low_conf = False
@@ -503,7 +506,7 @@ class WingScribePipeline:
                 r_info = self.db.get_bird_info(r_sci)
                 r_cn = r_info['chinese_name'] if r_info else r_sci
                 
-                candidates_data.append({"sci": r_sci, "cn": r_cn, "score": res['confidence']})
+                candidates_data.append({"sci": r_sci, "cn": r_cn, "score": float(res['confidence'])})
 
                 if i < len(display_results):
                     if i == 0:
@@ -526,31 +529,40 @@ class WingScribePipeline:
         
         confidence = top_result['confidence']
         
-        # Generate Path
-        gen_meta = {
-            'captured_date': meta.get('captured_date', '00000000'),
-            'location_tag': meta.get('location_tag', 'Unknown'),
-            'primary_bird_cn': cn_name,
-            'scientific_name': sci_name,
-            'confidence_score': confidence,
-            'source_structure': meta.get('source_structure', '.')
-        }
+        # Common variables for both modes
+        raw_exts = {'.nef', '.orf', '.cr2', '.cr3', '.arw', '.dng', '.rw2', '.pef', '.raf'}
+        ext = Path(entry.path).suffix.lower()
+        photo_id = item.get('photo_id')
         
-        current_filename = entry.name
-        if detections_len > 1:
-            base = Path(entry.name).stem
-            ext = Path(entry.name).suffix
-            current_filename = f"{base}_{i_det+1}{ext}"
-        # Normalize archived image to JPEG regardless of original format
-        if not current_filename.lower().endswith(('.jpg', '.jpeg')):
-            current_filename = Path(current_filename).with_suffix('.jpg').name
+        # Generate output path if output_root is configured; otherwise keep original file
+        if self.path_generator is not None:
+            gen_meta = {
+                'captured_date': meta.get('captured_date', '00000000'),
+                'location_tag': meta.get('location_tag', 'Unknown'),
+                'primary_bird_cn': cn_name,
+                'scientific_name': sci_name,
+                'confidence_score': confidence,
+                'source_structure': meta.get('source_structure', '.')
+            }
+            
+            current_filename = entry.name
+            if detections_len > 1:
+                base = Path(entry.name).stem
+                ext = Path(entry.name).suffix
+                current_filename = f"{base}_{i_det+1}{ext}"
+            # Normalize archived image to JPEG regardless of original format
+            if not current_filename.lower().endswith(('.jpg', '.jpeg')):
+                current_filename = Path(current_filename).with_suffix('.jpg').name
 
-        final_path = self.path_generator.generate_path(gen_meta, current_filename)
-        Path(final_path).parent.mkdir(parents=True, exist_ok=True)
-        
-        try:
-            import shutil
-            shutil.move(temp_crop_path, final_path)
+            final_path = self.path_generator.generate_path(gen_meta, current_filename)
+            Path(final_path).parent.mkdir(parents=True, exist_ok=True)
+            
+            try:
+                import shutil
+                shutil.move(temp_crop_path, final_path)
+            except Exception as e:
+                logging.error(f"Failed to move crop to {final_path}: {e}")
+                return
             
             if is_low_conf:
                 description = "Uncertain Bird (Low Confidence)"
@@ -570,12 +582,27 @@ class WingScribePipeline:
                 'Keywords': keywords,
                 'UserComment': user_comment
             })
-            
-            # Store absolute paths for database
-            captured_at = read_capture_datetime(self.exif_writer, entry.path)
-            photo_id = self.db.add_photo_record({
-                'file_path': str(final_path),
-                'filename': Path(final_path).name,
+            write_metadata_for_photo_mode = "xmp_sidecar" if ext in raw_exts else "exif"
+            db_file_path = str(final_path)
+            db_filename = Path(final_path).name
+        else:
+            # Index-only mode: keep original file path, do not write metadata back
+            db_file_path = entry.path
+            db_filename = entry.name
+            write_metadata_for_photo_mode = None
+            try:
+                os.remove(temp_crop_path)
+            except Exception:
+                pass
+        
+        # Store absolute paths for database
+        captured_at = read_capture_datetime(self.exif_writer, entry.path)
+        if isinstance(captured_at, datetime):
+            captured_at = captured_at.isoformat()
+        if photo_id is not None:
+            self.db.update_photo_record(photo_id, {
+                'file_path': db_file_path,
+                'filename': db_filename,
                 'original_path': entry.path,
                 'file_hash': file_hash,
                 'captured_date': meta.get('captured_date'),
@@ -590,12 +617,31 @@ class WingScribePipeline:
                 'quality_score': quality_score,
                 'quality_details': quality_details,
             })
-            if photo_id:
-                self._new_photo_ids.append(photo_id)
-            
-            # Write metadata to original file (JPEG embed, RAW sidecar)
+            self._new_photo_ids.append(photo_id)
+        else:
+            new_photo_id = self.db.add_photo_record({
+                'file_path': db_file_path,
+                'filename': db_filename,
+                'original_path': entry.path,
+                'file_hash': file_hash,
+                'captured_date': meta.get('captured_date'),
+                'captured_at': captured_at,
+                'location_tag': meta.get('location_tag'),
+                'primary_bird_cn': cn_name,
+                'scientific_name': sci_name,
+                'confidence_score': confidence,
+                'width': img_width,
+                'height': img_height,
+                'candidates_json': json.dumps(candidates_data, ensure_ascii=False),
+                'quality_score': quality_score,
+                'quality_details': quality_details,
+            })
+            if new_photo_id:
+                self._new_photo_ids.append(new_photo_id)
+        
+        # Write metadata to original file (JPEG embed, RAW sidecar) only when output is enabled
+        if write_metadata_for_photo_mode is not None:
             ext = Path(entry.path).suffix.lower()
-            raw_exts = {'.nef', '.orf', '.cr2', '.cr3', '.arw', '.dng', '.rw2', '.pef', '.raf'}
             write_mode = "xmp_sidecar" if ext in raw_exts else "exif"
             meta_record = SimpleNamespace(
                 original_path=entry.path,
@@ -608,32 +654,31 @@ class WingScribePipeline:
                 is_selected=False,
             )
             write_metadata_for_photo(meta_record, self.exif_writer, write_mode=write_mode)
-            
-            log_name = cn_name if not is_low_conf else f"Uncertain ({top_result['scientific_name']})"
-            # 根据日志等级决定输出详细程度
-            if self.log_level == 'debug':
-                logging.info(f"Processed: {entry.name} -> {log_name} ({confidence*100:.1f}%)")
-            # 更新进度
-            self.processed_count += 1
+        
+        log_name = cn_name if not is_low_conf else f"Uncertain ({top_result['scientific_name']})"
+        # 根据日志等级决定输出详细程度
+        if getattr(self, 'log_level', 'info') == 'debug':
+            logging.info(f"Processed: {entry.name} -> {log_name} ({confidence*100:.1f}%)")
+        # 更新进度
+        self.processed_count = getattr(self, 'processed_count', 0) + 1
+        if getattr(self, '_emit_progress', None):
             self._emit_progress()
-            
-        except Exception as e:
-            logging.error(f"Failed to archive {entry.name}: {e}")
-            # Log more details for debugging
-            import traceback
-            logging.debug(traceback.format_exc())
 
-    def process_image(self, provider, entry, meta):
-        # 1. Deduplication
-        file_hash = self._calculate_file_hash(provider, entry.path, entry.size)
-        # Use in-memory set if available (much faster), otherwise fallback to database
-        if self.existing_hashes is not None:
-            if file_hash in self.existing_hashes:
-                logging.debug(f"Skipping duplicate (in-memory): {entry.name}")
+    def process_image(self, provider, entry, meta, photo_id=None):
+        # 1. Deduplication (skip when re-processing an already indexed photo)
+        if photo_id is None:
+            file_hash = self._calculate_file_hash(provider, entry.path, entry.size)
+            # Use in-memory set if available (much faster), otherwise fallback to database
+            if self.existing_hashes is not None:
+                if file_hash in self.existing_hashes:
+                    logging.debug(f"Skipping duplicate (in-memory): {entry.name}")
+                    return
+            elif self.db.check_hash_exists(file_hash):
+                logging.debug(f"Skipping duplicate: {entry.name}")
                 return
-        elif self.db.check_hash_exists(file_hash):
-            logging.debug(f"Skipping duplicate: {entry.name}")
-            return
+        else:
+            # Recalculate hash for existing record to ensure consistency
+            file_hash = self._calculate_file_hash(provider, entry.path, entry.size)
 
         local_source_path = provider.get_local_path(entry.path)
         if not local_source_path: return
@@ -642,7 +687,7 @@ class WingScribePipeline:
         try:
             # For RAW formats, decode to a temporary JPEG first
             if ImageProcessor.is_raw(local_source_path):
-                temp_dir = Path(self.output_root) / "temp"
+                temp_dir = Path(self.output_root) / "temp" if self.output_root else Path("data/temp")
                 temp_dir.mkdir(parents=True, exist_ok=True)
                 decoded_temp_path = ImageProcessor.decode_raw_to_temp_jpg(local_source_path, str(temp_dir))
                 detection_input_path = decoded_temp_path
@@ -678,7 +723,7 @@ class WingScribePipeline:
             image_batch_items = []
 
             for i, (box, score) in enumerate(detections):
-                temp_dir = Path(self.output_root) / "temp"
+                temp_dir = Path(self.output_root) / "temp" if self.output_root else Path("data/temp")
                 temp_dir.mkdir(parents=True, exist_ok=True)
                 temp_crop_path = temp_dir / f"temp_{entry.name}_{i}.jpg"
 
@@ -717,6 +762,7 @@ class WingScribePipeline:
                         'detections_count': len(detections),
                         'quality_score': quality_score,
                         'quality_details': quality_details,
+                        'photo_id': photo_id,
                     })
 
             self._recognize_batch(image_batch_items, candidates)
@@ -727,6 +773,102 @@ class WingScribePipeline:
                     os.remove(decoded_temp_path)
                 except Exception:
                     pass
+
+    def process_image_by_id(self, provider, photo_record: dict, meta: dict):
+        """Process an already-indexed photo by its database record."""
+        from types import SimpleNamespace
+
+        class PhotoEntry:
+            def __init__(self, record):
+                self.path = record['file_path'] or record['original_path']
+                self.name = record['filename']
+                self.size = Path(self.path).stat().st_size if Path(self.path).exists() else 0
+
+        entry = PhotoEntry(photo_record)
+        return self.process_image(provider, entry, meta, photo_id=photo_record['id'])
+
+    def run_by_photo_ids(self, photo_ids: list, progress_callback=None):
+        """Run recognition on already indexed photos by their IDs."""
+        t_start = time.time()
+        start_time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        stop_requested = False
+
+        self._progress_callback = progress_callback
+        self._new_photo_ids = []
+        self.total_files = len(photo_ids)
+        self.processed_count = 0
+        self._emit_progress()
+
+        # Load photo records from database
+        records = []
+        for pid in photo_ids:
+            row = self.db.conn.execute(
+                "SELECT id, file_path, filename, original_path, captured_date, location_tag FROM photos WHERE id = ?",
+                (pid,)
+            ).fetchone()
+            if row:
+                records.append(dict(row))
+
+        if not records:
+            logging.info("No photos found for the provided IDs")
+            return
+
+        logging.info(f"Running recognition for {len(records)} indexed photos")
+
+        provider = LocalProvider(base_dir=None)
+
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            futures = []
+            for record in records:
+                if self._should_stop():
+                    stop_requested = True
+                    break
+
+                file_path = record.get('file_path') or record.get('original_path')
+                if not file_path or not Path(file_path).exists():
+                    logging.warning(f"Photo file not found for ID {record['id']}: {file_path}")
+                    self.processed_count += 1
+                    self._emit_progress()
+                    continue
+
+                source_root = Path(file_path).parent
+                parser = PathParser(source_root, None)
+                meta = parser.parse(file_path)
+                # Override location/captured_date with DB values if available
+                if record.get('captured_date'):
+                    meta['captured_date'] = record['captured_date']
+                if record.get('location_tag'):
+                    meta['location_tag'] = record['location_tag']
+
+                futures.append(executor.submit(self.process_image_by_id, provider, record, meta))
+
+                if len(futures) > 500:
+                    done, not_done = wait(futures, timeout=0.1)
+                    futures = list(not_done)
+
+            if futures:
+                done, not_done = wait(futures)
+                for future in done:
+                    exc = future.exception()
+                    if exc:
+                        logging.error(f"process_image_by_id failed: {exc}", exc_info=True)
+
+        t_end = time.time()
+        duration = t_end - t_start
+        end_time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        self.db.add_scan_history({
+            'start_time': start_time_str,
+            'end_time': end_time_str,
+            'range_start': "Photo IDs",
+            'range_end': str(len(photo_ids)),
+            'processed_count': len(records),
+            'duration_seconds': round(duration, 2),
+            'status': 'Stopped' if stop_requested else 'Completed'
+        })
+
+        logging.info(f"Pipeline (by photo IDs) completed. Processed: {len(records)}. Duration: {duration:.2f}s")
+        self._group_new_photos()
 
     def run(self, start_date: str = None, end_date: str = None, existing_hashes: set = None):
         t_start = time.time()
@@ -959,10 +1101,12 @@ class WingScribePipeline:
         resolved_paths = list(folder_paths)
 
         # Use ThreadPool for detection/cropping
+        # For run_by_folders, folder_paths are explicit absolute paths that may lie outside
+        # configured sources, so use a provider with no base restriction.
         with ThreadPoolExecutor(max_workers=4) as executor:
             futures = []
 
-            provider = LocalProvider(base_dir=self.source_dir)
+            provider = LocalProvider(base_dir=None)
 
             for path_str in resolved_paths:
                 if self._should_stop():
@@ -977,14 +1121,16 @@ class WingScribePipeline:
                 # Find the correct source_root for PathParser
                 # Use the longest matching source root
                 source_root_abs = None
+                parent_path_str = str(Path(path_str).parent)
                 for src_root in source_roots:
-                    if path_str.startswith(src_root) or (src_root and Path(path_str).parent.startswith(src_root)):
-                        source_root_abs = Path(src_root)
+                    src_root_str = str(src_root)
+                    if path_str.startswith(src_root_str) or (src_root_str and parent_path_str.startswith(src_root_str)):
+                        source_root_abs = Path(src_root_str)
                         break
 
                 if source_root_abs is None:
-                    # Fallback: use source_dir or path_str itself
-                    source_root_abs = Path(self.source_dir) if self.source_dir else Path(path_str)
+                    # Fallback: use the import folder itself as source_root
+                    source_root_abs = Path(path_str)
 
                 parser = PathParser(source_root_abs, None)
 

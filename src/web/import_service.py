@@ -58,7 +58,7 @@ class ImportService:
             "sample_files": [str(p) for p in files[:10]],
         }
 
-    def start_import(self, folder: str, recursive: bool = True, run_recognition: bool = True) -> dict:
+    def start_import(self, folder: str, recursive: bool = True, run_recognition: bool = True, overwrite: bool = False) -> dict:
         """Start the background import task."""
         if self.task_manager.is_running:
             return {"status": "error", "message": "Another task is already running"}
@@ -71,6 +71,7 @@ class ImportService:
             str(folder_path.resolve()),
             recursive=recursive,
             run_recognition=run_recognition,
+            overwrite=overwrite,
             config=self.config,
         )
         return {"status": "success", "message": "Import started"}

@@ -74,4 +74,8 @@ def test_index_folder_with_stats_counts_indexed_and_skipped(repo, tmp_path):
 
     result = indexer.index_folder_with_stats(tmp_path)
 
-    assert result == {"indexed": 1, "skipped": 1, "errors": 0}
+    assert result["indexed"] == 1
+    assert result["skipped"] == 1
+    assert result["errors"] == 0
+    assert result["overwritten"] == 0
+    assert len(result["photo_ids"]) == 1

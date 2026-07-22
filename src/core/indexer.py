@@ -60,10 +60,12 @@ class PhotoIndexer:
                 logger.error(f"Failed to index {path}: {e}")
         return photos
 
-    def index_folder_with_stats(self, folder: Path, recursive: bool = True) -> dict:
+    def index_folder_with_stats(self, folder: Path, recursive: bool = True, overwrite: bool = False) -> dict:
         indexed = 0
         skipped = 0
         errors = 0
+        overwritten = 0
+        photo_ids = []
         glob_pattern = "**/*" if recursive else "*"
         for path in folder.glob(glob_pattern):
             if not path.is_file():
@@ -72,23 +74,36 @@ class PhotoIndexer:
                 continue
             try:
                 file_hash = self._file_hash(path)
+                file_path = str(path)
+                filename = path.name
+
+                # Overwrite mode: remove existing record with same path + filename
+                if overwrite:
+                    existing = self.repo.get_by_path_and_name(file_path, filename)
+                    if existing:
+                        logger.info(f"Overwriting existing photo record: {path}")
+                        self.repo.delete(existing)
+                        overwritten += 1
+
                 existing = self.repo.get_by_hash(file_hash)
                 if existing is not None:
                     logger.info(f"Skipping duplicate photo: {path} (hash {file_hash[:8]}...)")
                     skipped += 1
                     continue
+
                 photo = Photo(
-                    file_path=str(path),
-                    filename=path.name,
-                    original_path=str(path),
+                    file_path=file_path,
+                    filename=filename,
+                    original_path=file_path,
                     file_hash=file_hash,
                 )
-                self.repo.add(photo)
+                photo = self.repo.add(photo)
+                photo_ids.append(photo.id)
                 indexed += 1
             except Exception as e:
                 logger.error(f"Failed to index {path}: {e}")
                 errors += 1
-        return {"indexed": indexed, "skipped": skipped, "errors": errors}
+        return {"indexed": indexed, "skipped": skipped, "errors": errors, "overwritten": overwritten, "photo_ids": photo_ids}
 
 
 def decode_raw(path: Path) -> np.ndarray:

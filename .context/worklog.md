@@ -100,39 +100,8 @@
    - 测试：
      - `tests/test_db_manager.py` 新增 `group_photo_ids`、`save_photo_groups`、`get_photos_without_group` 测试
      - `tests/test_pipeline_logic.py` 新增 `_group_new_photos` 分组、禁用、异常、过滤单张组测试
-     - 测试：
-     - 新建 `tests/test_web_import.py` 覆盖扫描统计、启动成功/失败、状态查询等 8 个用例
-     - 完整测试套件：330 passed, 1 skipped
-   - 提交 `d9d4ebc`：功能: 实现照片导入 Web 流程
-
-9. **工作目录清理与导入流程验证**
-   - 清理运行时未跟踪文件：
-     - 删除 `data/output/`、各 `data/*.db` 测试数据库、临时 GPU 测试脚本
-   - 更新 `.gitignore`：忽略 `data/*.db`、`data/output/`、`.trae/`、`scripts/test_gpu_recognition*.py`、文档报告、分组草稿文件
-   - 提交未跟踪的有效测试文件 `tests/test_focus.py`（覆盖 `src/core/focus.py`）
-   - 使用测试文件夹 `D:/照片/2026/20260102_北京_玉渊潭公园` 验证后端接口：
-     - `/api/import/scan`：成功返回 166 个 ORF，共 3.01 GB
-     - `/api/import/start`（`run_recognition=false`）：成功启动并完成
-     - `/api/import/status`：轮询正常，索引完成新增 166 张，数据库 `photos` 表 166 条记录
-   - 完整测试套件：330 passed, 1 skipped
-   - 提交 `TBD`：清理: 清理运行时文件并验证导入流程后端接口
-
-### 待处理
-- [ ] 与 `spec.md` 对齐：当前 spec 中是否有三域 Web 的详细设计需要确认
-- [x] 将 QualityScorer 集成进 pipeline_runner
-- [x] 实现三域 Web 路由 `/select`、`/gallery`、`/guide`
-- [x] 完善元数据写入并接入 pipeline 与 Web
-- [x] 实现真正的连拍分组（基于 EXIF 时间窗口）
-- [x] 在选片工作台应用连拍分组
-- [x] 实现照片导入 Web 流程
-- [x] 清理运行时文件并验证导入流程后端接口
-- [ ] 实现选片大图复核界面（检测框/AF点/质量分项）
-- [x] 决定飞版判断策略：暂时保留当前自动飞版逻辑，后续调整
-
-### 文件变更（本次未提交）
-- `.gitignore`
-- `tests/test_focus.py`
-- `.context/worklog.md`（本文件）
+   - 完整测试套件：325 passed, 1 skipped
+   - 提交 `d9d4ebc`：功能: 实现连拍分组
 
 8. **照片导入 Web 流程**
    - 服务层：
@@ -152,3 +121,56 @@
      - 新建 `tests/test_web_import.py` 覆盖扫描统计、启动成功/失败、状态查询等 8 个用例
      - 完整测试套件：330 passed, 1 skipped
    - 提交 `TBD`：功能: 实现照片导入 Web 流程
+
+9. **工作目录清理与导入流程验证**
+   - 清理运行时未跟踪文件：
+     - 删除 `data/output/`、各 `data/*.db` 测试数据库、临时 GPU 测试脚本
+   - 更新 `.gitignore`：忽略 `data/*.db`、`data/output/`、`.trae/`、`scripts/test_gpu_recognition*.py`、文档报告、分组草稿文件
+   - 提交未跟踪的有效测试文件 `tests/test_focus.py`（覆盖 `src/core/focus.py`）
+   - 使用测试文件夹 `D:/照片/2026/20260102_北京_玉渊潭公园` 验证后端接口：
+     - `/api/import/scan`：成功返回 166 个 ORF，共 3.01 GB
+     - `/api/import/start`（`run_recognition=false`）：成功启动并完成
+     - `/api/import/status`：轮询正常，索引完成新增 166 张，数据库 `photos` 表 166 条记录
+   - 完整测试套件：330 passed, 1 skipped
+   - 提交 `TBD`：清理: 清理运行时文件并验证导入流程后端接口
+
+10. **导入覆盖（overwrite）功能与后端流程验证**
+    - 需求：用户希望重新导入同一目录时，按 `路径 + 文件名` 覆盖旧记录，避免测试时反复删库。
+    - 实现：
+      - `src/web/app.py`：在 `/api/import/start` 的 body 中读取 `overwrite` 参数并透传。
+      - `src/web/import_service.py`：`start_import()` 增加 `overwrite` 参数。
+      - `src/web/task_manager.py`：`start_import()` / `_run_import_thread()` 增加并透传 `overwrite`。
+      - `src/core/indexer.py`：`index_folder_with_stats()` 增加 `overwrite` 参数；覆盖时删除同路径+文件名的旧记录，返回结果中新增 `overwritten` 和 `photo_ids`。
+      - `src/db/repository.py`：新增 `get_by_path_and_name()` / `delete()`。
+    - 修复 sqlite3 参数绑定：
+      - `src/metadata/ioc_manager.py` 的 `add_photo_record()` / `update_photo_record()` 新增 `_normalize_record_value()`，对 dict/list 自动 `json.dumps`、datetime 转 `isoformat`、numpy/torch scalar 转原生标量。
+    - 测试调整：
+      - `tests/test_web_import.py`：`FakeTaskManager.start_import()` 签名接受 `overwrite`。
+      - `tests/test_indexer.py`：`test_index_folder_with_stats_counts_indexed_and_skipped` 按新增字段断言。
+      - `tests/test_web_index.py`：API 返回断言从完整 dict 比较改为按字段断言。
+    - 验证：
+      - 完整测试套件：`326 passed, 1 skipped`。
+      - 使用 `D:/照片/2026/testdata` 8 张 ORF 测试 `overwrite=True`：
+        - `/api/import/scan` 返回 8 张 ORF，共 154.05 MB。
+        - 索引阶段正确覆盖 8 条旧记录；识别阶段运行成功，无 sqlite3 参数绑定错误。
+        - 数据库记录：5 张有识别结果（如 P6200398 → 褐翅䴕雀，P6200617 → 赤麻鸭），2 张因模糊被质量过滤跳过，剩余无鸟框未识别。
+    - 清理：删除临时测试脚本 `import_test.py` 与结果 `import_test_result.txt`。
+    - 提交 `TBD`：功能: 添加导入覆盖功能并修复 sqlite3 参数绑定。
+
+### 待处理
+- [ ] 与 `spec.md` 对齐：当前 spec 中是否有三域 Web 的详细设计需要确认
+- [x] 将 QualityScorer 集成进 pipeline_runner
+- [x] 实现三域 Web 路由 `/select`、`/gallery`、`/guide`
+- [x] 完善元数据写入并接入 pipeline 与 Web
+- [x] 实现真正的连拍分组（基于 EXIF 时间窗口）
+- [x] 在选片工作台应用连拍分组
+- [x] 实现照片导入 Web 流程
+- [x] 清理运行时文件并验证导入流程后端接口
+- [x] 实现导入覆盖功能
+- [ ] 实现选片大图复核界面（检测框/AF点/质量分项）
+- [x] 决定飞版判断策略：暂时保留当前自动飞版逻辑，后续调整
+
+### 文件变更（本次未提交）
+- `.gitignore`
+- `tests/test_focus.py`
+- `.context/worklog.md`（本文件）

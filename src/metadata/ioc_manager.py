@@ -1,3 +1,4 @@
+import json
 import sqlite3
 import logging
 import pandas as pd
@@ -6,7 +7,7 @@ import xml.etree.ElementTree as ET
 import threading
 from contextlib import contextmanager
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 from datetime import datetime
 
 class IOCManager:
@@ -813,6 +814,19 @@ class IOCManager:
             cursor = conn.execute("SELECT file_hash FROM photos WHERE file_hash IS NOT NULL AND file_hash != ''")
             return {row[0] for row in cursor.fetchall()}
 
+    def _normalize_record_value(self, value: Any) -> Any:
+        """Convert values that sqlite3 cannot bind into supported types."""
+        if value is None:
+            return None
+        if isinstance(value, (dict, list)):
+            return json.dumps(value, ensure_ascii=False)
+        if hasattr(value, 'isoformat'):
+            return value.isoformat()
+        if hasattr(value, 'item'):
+            # numpy/torch scalar
+            return value.item()
+        return value
+
     def add_photo_record(self, record: Dict):
         # Convert absolute paths to relative paths for storage
         record = dict(record)
@@ -820,6 +834,8 @@ class IOCManager:
             record['file_path'] = self.to_storage_processed_path(record['file_path'])
         if 'original_path' in record and record['original_path']:
             record['original_path'] = self.to_storage_original_path(record['original_path'])
+
+        record = {k: self._normalize_record_value(v) for k, v in record.items()}
 
         keys = ', '.join(record.keys())
         placeholders = ', '.join(['?'] * len(record))
@@ -834,6 +850,30 @@ class IOCManager:
                 self._update_species_stats_for_photo_conn(conn, record['scientific_name'])
 
             return cursor.lastrowid
+
+    def update_photo_record(self, photo_id: int, record: Dict):
+        """Update an existing photo record with recognition results."""
+        record = dict(record)
+
+        if 'file_path' in record and record['file_path']:
+            record['file_path'] = self.to_storage_processed_path(record['file_path'])
+        if 'original_path' in record and record['original_path']:
+            record['original_path'] = self.to_storage_original_path(record['original_path'])
+
+        record = {k: self._normalize_record_value(v) for k, v in record.items()}
+
+        # Remove id if present
+        record.pop('id', None)
+        if not record:
+            return
+
+        fields = ', '.join(f"{k} = ?" for k in record.keys())
+        values = tuple(record.values()) + (photo_id,)
+        sql = f"UPDATE photos SET {fields} WHERE id = ?"
+        with self._operation_connection(write=True) as conn:
+            conn.execute(sql, values)
+            if record.get('scientific_name'):
+                self._update_species_stats_for_photo_conn(conn, record['scientific_name'])
 
     def update_photo_species(self, photo_id: int, scientific_name: str, chinese_name: str):
         with self._operation_connection(write=True) as conn:

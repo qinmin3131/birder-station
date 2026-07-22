@@ -14,7 +14,7 @@ class FakeTaskManager:
         self.logs = []
         self.started_args = None
 
-    def start_import(self, folder_path, recursive=True, run_recognition=True, config=None):
+    def start_import(self, folder_path, recursive=True, run_recognition=True, overwrite=False, config=None):
         if self.is_running:
             return False
         self.is_running = True
@@ -22,6 +22,7 @@ class FakeTaskManager:
             "folder_path": folder_path,
             "recursive": recursive,
             "run_recognition": run_recognition,
+            "overwrite": overwrite,
             "config": config,
         }
         return True

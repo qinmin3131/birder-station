@@ -61,7 +61,11 @@ def test_api_index_counts_indexed_and_skipped(tmp_path, monkeypatch):
         web_app.IndexRequest(folder=str(folder), recursive=True)
     )
 
-    assert result == {"indexed": 2, "skipped": 0, "errors": 0}
+    assert result["indexed"] == 2
+    assert result["skipped"] == 0
+    assert result["errors"] == 0
+    assert result["overwritten"] == 0
+    assert len(result["photo_ids"]) == 2
 
 
 def test_api_index_skips_duplicate_photos(tmp_path, monkeypatch):
@@ -80,8 +84,16 @@ def test_api_index_skips_duplicate_photos(tmp_path, monkeypatch):
     first = web_app.index_photos(web_app.IndexRequest(folder=str(folder)))
     second = web_app.index_photos(web_app.IndexRequest(folder=str(folder)))
 
-    assert first == {"indexed": 1, "skipped": 0, "errors": 0}
-    assert second == {"indexed": 0, "skipped": 1, "errors": 0}
+    assert first["indexed"] == 1
+    assert first["skipped"] == 0
+    assert first["errors"] == 0
+    assert first["overwritten"] == 0
+    assert len(first["photo_ids"]) == 1
+
+    assert second["indexed"] == 0
+    assert second["skipped"] == 1
+    assert second["errors"] == 0
+    assert second["overwritten"] == 0
 
 
 def test_api_index_rejects_missing_folder(monkeypatch):
@@ -107,4 +119,8 @@ def test_api_index_uses_default_formats_when_config_missing(tmp_path, monkeypatc
 
     result = web_app.index_photos(web_app.IndexRequest(folder=str(folder)))
 
-    assert result == {"indexed": 1, "skipped": 0, "errors": 0}
+    assert result["indexed"] == 1
+    assert result["skipped"] == 0
+    assert result["errors"] == 0
+    assert result["overwritten"] == 0
+    assert len(result["photo_ids"]) == 1
