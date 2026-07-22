@@ -100,8 +100,22 @@
    - 测试：
      - `tests/test_db_manager.py` 新增 `group_photo_ids`、`save_photo_groups`、`get_photos_without_group` 测试
      - `tests/test_pipeline_logic.py` 新增 `_group_new_photos` 分组、禁用、异常、过滤单张组测试
-     - 完整测试套件：322 passed, 1 skipped
-   - 提交 `TBD`：功能: 实现连拍分组并在选片页优先展示
+     - 测试：
+     - 新建 `tests/test_web_import.py` 覆盖扫描统计、启动成功/失败、状态查询等 8 个用例
+     - 完整测试套件：330 passed, 1 skipped
+   - 提交 `d9d4ebc`：功能: 实现照片导入 Web 流程
+
+9. **工作目录清理与导入流程验证**
+   - 清理运行时未跟踪文件：
+     - 删除 `data/output/`、各 `data/*.db` 测试数据库、临时 GPU 测试脚本
+   - 更新 `.gitignore`：忽略 `data/*.db`、`data/output/`、`.trae/`、`scripts/test_gpu_recognition*.py`、文档报告、分组草稿文件
+   - 提交未跟踪的有效测试文件 `tests/test_focus.py`（覆盖 `src/core/focus.py`）
+   - 使用测试文件夹 `D:/照片/2026/20260102_北京_玉渊潭公园` 验证后端接口：
+     - `/api/import/scan`：成功返回 166 个 ORF，共 3.01 GB
+     - `/api/import/start`（`run_recognition=false`）：成功启动并完成
+     - `/api/import/status`：轮询正常，索引完成新增 166 张，数据库 `photos` 表 166 条记录
+   - 完整测试套件：330 passed, 1 skipped
+   - 提交 `TBD`：清理: 清理运行时文件并验证导入流程后端接口
 
 ### 待处理
 - [ ] 与 `spec.md` 对齐：当前 spec 中是否有三域 Web 的详细设计需要确认
@@ -111,16 +125,13 @@
 - [x] 实现真正的连拍分组（基于 EXIF 时间窗口）
 - [x] 在选片工作台应用连拍分组
 - [x] 实现照片导入 Web 流程
+- [x] 清理运行时文件并验证导入流程后端接口
 - [ ] 实现选片大图复核界面（检测框/AF点/质量分项）
 - [x] 决定飞版判断策略：暂时保留当前自动飞版逻辑，后续调整
 
 ### 文件变更（本次未提交）
-- `src/web/import_service.py`（新建）
-- `src/web/task_manager.py`（添加 `start_import` 与 `_run_import_thread`）
-- `src/web/app.py`（添加 `/import` 页面及扫描/启动/状态 API）
-- `src/web/templates/import.html`（新建）
-- `src/web/templates/select.html`、`gallery.html`、`guide.html`、`admin.html`、`index.html`（导航栏增加导入入口）
-- `tests/test_web_import.py`（新建）
+- `.gitignore`
+- `tests/test_focus.py`
 - `.context/worklog.md`（本文件）
 
 8. **照片导入 Web 流程**
