@@ -38,25 +38,24 @@ class QualityChecker:
 
 
 class QualityScorer:
-    """7 维加权画质评分器。
+    """6 维加权画质评分器。
 
     维度权重按 spec.md §3.2 定义,可通过构造函数注入来自 ``config/settings.yaml``
     的 ``quality.weights`` 自定义。各维度返回 0-1 的归一化分数,综合分数为 0-100
     的整数。
+
+    注: 原飞版加分 (bif) 维度已移除,其权重重新分配至 clarity 与 focus。
     """
 
     DEFAULT_WEIGHTS: Dict[str, float] = {
-        "clarity": 0.25,
+        "clarity": 0.30,
         "contrast": 0.10,
         "position": 0.10,
         "exposure": 0.10,
         "pose": 0.20,
-        "bif": 0.10,
-        "focus": 0.15,
+        "focus": 0.20,
     }
 
-    DEFAULT_FLIGHT_UPGRADE_THRESHOLD = 0.35
-    DEFAULT_FLIGHT_UPGRADE_BONUS = 0.20
     DEFAULT_EMPTY_FOCUS_SCORE = 0.5
     _CLARITY_NORMALIZER = 500.0
     _CONTRAST_NORMALIZER = 80.0
@@ -69,10 +68,6 @@ class QualityScorer:
         self.weights = dict(self.DEFAULT_WEIGHTS)
         if weights:
             self.weights.update(weights)
-        threshold = pose_upgrade_threshold or {}
-        self.flight_upgrade_threshold = float(
-            threshold.get("flight_probability", self.DEFAULT_FLIGHT_UPGRADE_THRESHOLD)
-        )
 
     @staticmethod
     def _to_gray(image: np.ndarray) -> np.ndarray:
@@ -129,17 +124,6 @@ class QualityScorer:
         values = [float(v) for v in visibility.values()]
         return sum(values) / len(values)
 
-    def calculate_bif_score(
-        self,
-        visibility: Dict[str, float],
-        flight_prob: float = 0.0,
-    ) -> float:
-        """飞版加分:飞行概率超过阈值时在姿态分基础上加 bonus,上限 1.0。"""
-        pose = self.calculate_pose_score(visibility)
-        if flight_prob > self.flight_upgrade_threshold:
-            return min(pose + self.DEFAULT_FLIGHT_UPGRADE_BONUS, 1.0)
-        return pose
-
     def calculate_focus_score(
         self,
         focus_points: List[Tuple[int, int]],
@@ -161,9 +145,8 @@ class QualityScorer:
         bird_bbox: Tuple[int, int, int, int],
         visibility: Dict[str, float],
         focus_points: List[Tuple[int, int]],
-        flight_prob: float = 0.0,
     ) -> Dict:
-        """计算 7 维加权综合画质评分。
+        """计算 6 维加权综合画质评分。
 
         Returns:
             ``{"score": int 0-100, "details": {dim: float 0-1, ...}}``
@@ -174,16 +157,16 @@ class QualityScorer:
             "position": self.calculate_position(image.shape, bird_bbox),
             "exposure": self.calculate_exposure(image),
             "pose": self.calculate_pose_score(visibility),
-            "bif": self.calculate_bif_score(visibility, flight_prob),
             "focus": self.calculate_focus_score(focus_points, bird_bbox),
         }
         weighted = sum(details[dim] * self.weights[dim] for dim in self.weights)
         return {"score": int(round(weighted * 100)), "details": details}
 
     def score_from_path(self, image_path: str, bird_bbox: Tuple[int, int, int, int]) -> Dict:
-        """从图像路径和鸟框计算 7 维画质评分。
+        """从图像路径和鸟框计算 6 维画质评分。
 
         自动调用 PoseDetector 和 FocusParser 获取姿态与焦点信息。
+        无 AF 对焦点时不进行中心兜底,focus 维度返回中性分。
         """
         from .pose import PoseDetector
         from .focus import FocusParser
@@ -198,10 +181,6 @@ class QualityScorer:
         focus_parser = FocusParser()
 
         visibility = pose.detect_visibility(image, bird_bbox)
-        flight_prob = pose.is_flying(image, bird_bbox)
         focus_points = focus_parser.parse_af_points(image_path)
-        if not focus_points:
-            h, w = image.shape[:2]
-            focus_points = FocusParser.get_fallback_points(w, h)
 
-        return self.calculate_quality_score(image, bird_bbox, visibility, focus_points, flight_prob)
+        return self.calculate_quality_score(image, bird_bbox, visibility, focus_points)

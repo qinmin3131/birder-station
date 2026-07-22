@@ -252,3 +252,38 @@
 - `.gitignore`
 - `tests/test_focus.py`
 - `.context/worklog.md`（本文件）
+
+## 2026-07-23
+
+### 当日目标
+- 去掉飞版（bif）评分维度
+- 对焦点：无 AF 信息时不兜底，改用 Olympus 专用 ExifTool 标签查询 ORF
+- 修复选片工作台裁切图在 4:3 框内变形问题
+
+### 已完成
+1. **移除飞版评分维度**
+   - `src/core/quality.py`：删除 `bif` 权重、`calculate_bif_score`、`flight_prob` 参数与 `DEFAULT_FLIGHT_UPGRADE_*` 常量
+   - 权重重分配：clarity 0.25→0.30、focus 0.15→0.20，其余不变，总和仍为 1.0
+   - `src/core/pose.py`：删除已不再被调用的 `is_flying` 方法及飞版相关文档
+   - `score_from_path` 不再调用 `is_flying`
+   - 同步 `spec.md`（评估表、伪代码、配置示例、模块表）与三个 config（`settings.yaml`/`settings.test_pipeline.yaml`/`settings.example.yaml`），移除 `bif` 权重与 `flight_probability` 阈值
+   - 更新 `scripts/score_test_images.py`、测试 `tests/test_quality.py`、`tests/test_quality_helpers.py`、`tests/test_pose.py`
+
+2. **对焦点改用 Olympus 专用标签、取消兜底**
+   - `src/core/focus.py` 完全重写：ExifTool 查询 Olympus 专用标签（`AFPointSelected`/`AFSelectedArea`/`AFFocusArea`/`AFFrameSize`/`SubjectDetectArea`）+ 通用 Canon/Nikon 标签 + 图像尺寸
+   - 像素坐标标签直接取点；百分比坐标标签用 ExifImageWidth/Height 换算为像素
+   - 删除 `get_fallback_points`，无 AF 信息时返回空列表
+   - `src/web/app.py` 复核接口取消中心兜底，前端 canvas 对空 af_points 安全（不绘制）
+   - 新增测试 `test_no_fallback_when_exiftool_unavailable`
+
+3. **修复裁切图变形**
+   - `src/web/templates/select.html` 的 `.card-img-top` 由 `height: 220px` 改为 `aspect-ratio: 4 / 3`，配合 `object-fit: contain`
+   - 图片元素本身即为 4:3 框，图片内容按原始比例在框内展示并留白，彻底消除变形
+
+### 发现/踩坑
+- **spec 分歧处理**：用户要求移除 bif 与 spec.md §3.2 冲突，经用户明确确认后同步更新 spec 与 config，未静默覆盖
+- **ORF AF 标签**：原有 `-AFPoint -AFPointsInFocus` 是 Canon/Nikon 通用标签，对 Olympus ORF 无效；Olympus MakerNotes 中 `AFPointSelected` 为百分比坐标，需配合图像尺寸换算
+
+### 测试
+- `python -m pytest` 全量通过：340 passed, 1 skipped
+

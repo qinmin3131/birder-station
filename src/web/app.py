@@ -930,9 +930,14 @@ def _resolve_original_path(photo: Photo) -> str:
     path_obj = Path(path)
     if path_obj.is_absolute():
         return str(path_obj)
-    source_dir = config.get("paths", {}).get("source_dir", "")
-    if source_dir:
-        return str(Path(source_dir) / path_obj)
+    # Try each configured source directory
+    for src_dir in source_dirs:
+        candidate = src_dir / path_obj
+        if candidate.exists():
+            return str(candidate)
+    # Fallback: join with first source dir even if not found
+    if source_dirs:
+        return str(source_dirs[0] / path_obj)
     return str(path_obj)
 
 
@@ -949,10 +954,8 @@ def get_photo_review(photo_id: int):
         if not original_path or not Path(original_path).exists():
             raise HTTPException(status_code=404, detail="Original file not found")
 
-        # AF points; fallback to center if not available
+        # AF points; no center fallback when EXIF has no AF data
         af_points = focus_parser.parse_af_points(original_path)
-        if not af_points and photo.width and photo.height:
-            af_points = FocusParser.get_fallback_points(photo.width, photo.height)
 
         candidates: List[Any] = []
         if photo.candidates_json:
@@ -1100,6 +1103,26 @@ async def import_parse_location(data: dict):
     except Exception as e:
         logger.error(f"Parse location failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/import/browse-folder")
+async def import_browse_folder():
+    """弹出系统文件夹选择对话框，返回选中的文件夹路径。"""
+    try:
+        import tkinter
+        from tkinter import filedialog
+        root = tkinter.Tk()
+        root.withdraw()
+        root.attributes('-topmost', True)
+        folder = filedialog.askdirectory(title="选择照片源目录")
+        root.destroy()
+        if folder:
+            return {"status": "success", "folder": folder}
+        else:
+            return {"status": "cancelled"}
+    except Exception as e:
+        logger.error(f"Browse folder failed: {e}")
+        return {"status": "error", "detail": str(e)}
 
 
 @app.post("/api/import/start")

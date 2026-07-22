@@ -20,16 +20,14 @@ metadata:
 
 quality:
   weights:
-    clarity: 0.25
+    clarity: 0.30
     contrast: 0.10
     position: 0.10
     exposure: 0.10
     pose: 0.20
-    bif: 0.10
-    focus: 0.15
+    focus: 0.20
   pose_upgrade_threshold:
     head_eye_visible: true
-    flight_probability: 0.35
 
 grouper:
   time_window: 5

@@ -29,17 +29,6 @@ class TestPoseDetector:
         assert vis["head"] >= vis["tail"]
         assert vis["eye"] >= 0.5
 
-    def test_horizontal_bbox_suggests_flight(self):
-        detector = PoseDetector()
-        # Wide, short bbox like a flying bird
-        prob = detector.is_flying(np.zeros((100, 300, 3), dtype=np.uint8), (50, 40, 200, 30))
-        assert prob >= 0.5
-
-    def test_vertical_bbox_suggests_not_flying(self):
-        detector = PoseDetector()
-        prob = detector.is_flying(np.zeros((300, 100, 3), dtype=np.uint8), (25, 50, 50, 200))
-        assert prob < 0.5
-
 
 class TestFocusParser:
     def test_returns_empty_list_for_invalid_path(self):
@@ -47,11 +36,13 @@ class TestFocusParser:
         points = parser.parse_af_points("/does/not/exist.jpg")
         assert points == []
 
-    def test_fallback_returns_center_points(self):
-        parser = FocusParser()
-        points = parser.get_fallback_points(200, 100)
-        assert len(points) == 1
-        assert points[0] == (100, 50)
+    def test_no_fallback_when_exiftool_unavailable(self, tmp_path):
+        # ExifTool 未安装或无 AF 信息时返回空列表，不进行中心兜底
+        img_path = tmp_path / "test.jpg"
+        cv2.imwrite(str(img_path), np.ones((100, 100, 3), dtype=np.uint8) * 128)
+        parser = FocusParser(exiftool_path="nonexistent-exiftool")
+        points = parser.parse_af_points(str(img_path))
+        assert points == []
 
 
 class TestQualityScorerScoreFromPath:
@@ -64,7 +55,7 @@ class TestQualityScorerScoreFromPath:
         assert "score" in result
         assert "details" in result
         assert set(result["details"].keys()) == {
-            "clarity", "contrast", "position", "exposure", "pose", "bif", "focus"
+            "clarity", "contrast", "position", "exposure", "pose", "focus"
         }
         assert 0 <= result["score"] <= 100
 

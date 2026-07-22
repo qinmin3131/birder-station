@@ -9,7 +9,7 @@
     <link rel="stylesheet" href="https://cdn.bootcdn.net/ajax/libs/bootstrap-icons/1.11.3/font/bootstrap-icons.min.css">
     <style>
         body { font-size: 14px; }
-        .card-img-top { height: 220px; object-fit: cover; cursor: pointer; }
+        .card-img-top { width: 100%; aspect-ratio: 4 / 3; object-fit: contain; cursor: pointer; background: #f8f9fa; display: block; }
         .photo-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; width: 100%; }
         .photo-grid .photo-card { min-width: 0; }
         @media (max-width: 1199.98px) { .photo-grid { grid-template-columns: repeat(4, 1fr); } }
@@ -52,11 +52,17 @@
         <div class="row mb-3">
             <div class="col-12 d-flex justify-content-between align-items-center">
                 <h5 class="mb-0">🎯 选片工作台</h5>
-                <div class="btn-group btn-group-sm">
-                    <button class="btn btn-success" onclick="batchAction('select')">批量选中 ≥80分</button>
-                    <button class="btn btn-outline-secondary" onclick="batchAction('keep')">保留</button>
-                    <button class="btn btn-outline-danger" onclick="batchAction('reject')">淘汰</button>
-                    <a href="/gallery" class="btn btn-primary">查看本次外拍 → 图库</a>
+                <div class="d-flex align-items-center gap-3">
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" id="showRawToggle" onchange="toggleAllImages()">
+                        <label class="form-check-label small" for="showRawToggle">显示原图</label>
+                    </div>
+                    <div class="btn-group btn-group-sm">
+                        <button class="btn btn-success" onclick="batchAction('select')">批量选中 ≥80分</button>
+                        <button class="btn btn-outline-secondary" onclick="batchAction('keep')">保留</button>
+                        <button class="btn btn-outline-danger" onclick="batchAction('reject')">淘汰</button>
+                        <a href="/gallery" class="btn btn-primary">查看本次外拍 → 图库</a>
+                    </div>
                 </div>
             </div>
         </div>
@@ -92,10 +98,14 @@
                      data-score="{{ photo.quality_score|default(0) }}">
                     <div class="position-relative">
                         <div class="btn-group btn-group-sm position-absolute top-0 start-0 m-1" style="z-index: 10;">
-                            {% if processed_path %}<a href="{{ processed_path }}" download class="btn btn-dark btn-sm">裁切</a>{% endif %}
-                            {% if raw_path %}<a href="{{ raw_path }}" download class="btn btn-dark btn-sm">原图</a>{% endif %}
+                            {% if processed_path %}<button class="btn btn-dark btn-sm" onclick="toggleImage({{ photo.id }}, 'processed')">裁切</button>{% endif %}
+                            {% if raw_path %}<button class="btn btn-dark btn-sm" onclick="toggleImage({{ photo.id }}, 'raw')">原图</button>{% endif %}
                         </div>
-                        <img src="{{ processed_path if processed_path else raw_path }}" class="card-img-top" alt="{{ photo.primary_bird_cn }}" loading="lazy" onclick="openReview({{ photo.id }})">
+                        <img id="img-{{ photo.id }}"
+                             src="{{ processed_path if processed_path else raw_path }}"
+                             data-processed="{{ processed_path }}"
+                             data-raw="{{ raw_path }}"
+                             class="card-img-top" alt="{{ photo.primary_bird_cn }}" loading="lazy" onclick="openReview({{ photo.id }})">
                     </div>
                     <div class="card-body">
                         <h6 class="card-title">{{ photo.primary_bird_cn }}</h6>
@@ -179,6 +189,33 @@
 
     <script src="/lib/js/bootstrap.bundle.min.js"></script>
     <script>
+        function toggleImage(photoId, type) {
+            const img = document.getElementById(`img-${photoId}`);
+            if (!img) return;
+            const processed = img.dataset.processed;
+            const raw = img.dataset.raw;
+            if (type === 'raw' && raw) {
+                img.src = raw;
+            } else if (type === 'processed' && processed) {
+                img.src = processed;
+            }
+        }
+
+        function toggleAllImages() {
+            const showRaw = document.getElementById('showRawToggle').checked;
+            document.querySelectorAll('img[id^="img-"]').forEach(img => {
+                const processed = img.dataset.processed;
+                const raw = img.dataset.raw;
+                if (showRaw && raw) {
+                    img.src = raw;
+                } else if (processed) {
+                    img.src = processed;
+                } else if (raw) {
+                    img.src = raw;
+                }
+            });
+        }
+
         function markPhoto(id, action) {
             const card = document.querySelector(`#photo-card-${id} .card`);
             card.classList.remove('selected-card', 'rejected-card');
@@ -268,16 +305,16 @@
             Object.keys(qdNames).forEach(key => {
                 if (key in qd) {
                     const score = qd[key];
-                    const fill = Math.max(0, Math.min(100, score));
+                    const pct = Math.max(0, Math.min(100, score * 100));
                     const div = document.createElement('div');
                     div.className = 'mb-2';
                     div.innerHTML = `
                         <div class="d-flex justify-content-between small">
                             <span>${qdNames[key]}</span>
-                            <span>${score.toFixed(1)}</span>
+                            <span>${pct.toFixed(1)}</span>
                         </div>
                         <div class="progress" style="height: 6px;">
-                            <div class="progress-bar" role="progressbar" style="width: ${fill}%"></div>
+                            <div class="progress-bar" role="progressbar" style="width: ${pct}%"></div>
                         </div>
                     `;
                     qdContainer.appendChild(div);

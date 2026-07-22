@@ -85,12 +85,14 @@
                         <div class="input-group input-group-lg">
                             <span class="input-group-text"><i class="bi bi-folder"></i></span>
                             <input type="text" id="folder-input" class="form-control folder-input" placeholder="例如 D:\Photos\ outing" value="{{ default_source_dir }}">
+                            <button class="btn btn-outline-secondary" type="button" onclick="browseFolder()">浏览...</button>
                             <button class="btn btn-primary" type="button" onclick="scanFolder()">扫描</button>
+                            <input type="file" id="folder-browser" webkitdirectory directory multiple class="d-none" onchange="handleFolderSelect(event)">
                         </div>
                         <div class="form-text">支持 JPEG 和常见 RAW 格式（ORF、NEF、CR2、CR3、ARW、DNG、RW2、PEF、RAF）。</div>
                     </div>
                     <div class="alert alert-light border" id="recent-locations">
-                        <strong>提示：</strong> 将相机或读卡器挂载的目录粘贴到上方，或输入本地文件夹完整路径。
+                        <strong>提示：</strong> 点击「浏览」选择文件夹，或直接输入本地文件夹完整路径。
                     </div>
                 </div>
 
@@ -297,6 +299,24 @@
 
         function prevStep() {
             if (currentStep > 1) setStep(currentStep - 1);
+        }
+
+        function browseFolder() {
+            fetch('/api/import/browse-folder')
+                .then(res => res.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        document.getElementById('folder-input').value = data.folder;
+                        document.getElementById('btn-next').disabled = false;
+                    }
+                })
+                .catch(e => {
+                    console.error('Browse failed:', e);
+                });
+        }
+
+        function handleFolderSelect(event) {
+            event.target.value = '';
         }
 
         document.getElementById('folder-input').addEventListener('input', function () {

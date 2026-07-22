@@ -1,4 +1,4 @@
-"""对测试文件夹中的 ORF 照片进行 7 维画质评分（使用真实检测框）。"""
+"""对测试文件夹中的 ORF 照片进行 6 维画质评分（使用真实检测框）。"""
 import sys
 from pathlib import Path
 
@@ -47,7 +47,7 @@ def main():
         return
 
     print(f"测试照片: {len(orf_files)} 张\n")
-    print(f"{'文件名':<20} {'总分':<6} {'clarity':<8} {'contrast':<8} {'position':<8} {'exposure':<8} {'pose':<6} {'bif':<6} {'focus':<6}")
+    print(f"{'文件名':<20} {'总分':<6} {'clarity':<8} {'contrast':<8} {'position':<8} {'exposure':<8} {'pose':<6} {'focus':<6}")
     print("-" * 90)
 
     for orf_path in orf_files:
@@ -76,19 +76,16 @@ def main():
         bbox = (x, y, bw, bh)
 
         visibility = pose.detect_visibility(img, bbox)
-        flight_prob = pose.is_flying(img, bbox)
         focus_points = focus.parse_af_points(str(orf_path))
-        if not focus_points:
-            focus_points = FocusParser.get_fallback_points(w, h)
 
-        result = scorer.calculate_quality_score(img, bbox, visibility, focus_points, flight_prob)
+        result = scorer.calculate_quality_score(img, bbox, visibility, focus_points)
         score = result["score"]
         d = result["details"]
 
         print(
             f"{orf_path.name:<20} {score:<6} "
             f"{d['clarity']:<8.3f} {d['contrast']:<8.3f} {d['position']:<8.3f} "
-            f"{d['exposure']:<8.3f} {d['pose']:<6.3f} {d['bif']:<6.3f} {d['focus']:<6.3f}"
+            f"{d['exposure']:<8.3f} {d['pose']:<6.3f} {d['focus']:<6.3f}"
         )
 
 

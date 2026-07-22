@@ -324,7 +324,7 @@
                                 <div class="d-flex justify-content-between align-items-center mb-2">
                                     <span class="location-tag">📍 {{ photo.location_tag }}</span>
                                     <span class="badge bg-light text-dark border">
-                                        {{ (photo.confidence_score * 100)|int }}%
+                                        {{ ((photo.confidence_score or 0) * 100)|int }}%
                                     </span>
                                 </div>
 
@@ -791,7 +791,7 @@
                             <div class="d-flex justify-content-between align-items-center mb-2">
                                 <span class="location-tag">📍 ${photo.location_tag}</span>
                                 <span class="badge bg-light text-dark border">
-                                    ${(photo.confidence_score * 100).toFixed(0)}%
+                                    ${((photo.confidence_score || 0) * 100).toFixed(0)}%
                                 </span>
                             </div>
 

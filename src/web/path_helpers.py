@@ -1,12 +1,43 @@
 import os
+import logging
 import sqlite3
 from pathlib import Path
 from typing import Optional, Sequence
 
 from fastapi import HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 
 from src.metadata.ioc_manager import IOCManager
+
+logger = logging.getLogger(__name__)
+
+SUPPORTED_RAW_EXTENSIONS = ('.orf', '.nef', '.cr2', '.cr3', '.arw', '.dng', '.rw2', '.pef', '.raf')
+
+
+def is_raw_file(file_path: str) -> bool:
+    """Check if file is a supported RAW format."""
+    return Path(file_path).suffix.lower() in SUPPORTED_RAW_EXTENSIONS
+
+
+def extract_preview_jpeg(source_path: str) -> Optional[bytes]:
+    """Extract embedded JPEG preview from RAW file using rawpy."""
+    try:
+        import rawpy
+        with rawpy.imread(source_path) as raw:
+            thumb = raw.extract_thumb()
+        if thumb.format == rawpy.ThumbFormat.JPEG:
+            return thumb.data
+        elif thumb.format == rawpy.ThumbFormat.BITMAP:
+            from PIL import Image
+            from io import BytesIO
+            img = Image.fromarray(thumb.data)
+            buf = BytesIO()
+            img.save(buf, format='JPEG', quality=90)
+            return buf.getvalue()
+        return None
+    except Exception as e:
+        logger.warning(f"Preview extraction failed for {source_path}: {e}")
+        return None
 
 
 def is_absolute_path(p: str) -> bool:
@@ -59,6 +90,11 @@ def get_raw_file_response(path: str, source_dirs: Sequence[Path]):
 
     full_path = source_dirs[source_index] / relative_path.replace("/", os.sep)
     if full_path.exists() and full_path.is_file():
+        # For RAW files, extract embedded JPEG preview for browser display
+        if is_raw_file(str(full_path)):
+            preview_data = extract_preview_jpeg(str(full_path))
+            if preview_data:
+                return Response(content=preview_data, media_type="image/jpeg")
         return FileResponse(full_path)
     raise HTTPException(status_code=404, detail=f"File not found: {path}")
 

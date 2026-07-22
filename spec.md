@@ -43,7 +43,7 @@ birder_photo_manager/
 │   ├── core/           # 核心业务逻辑
 │   │   ├── recognizer.py    # 鸟种识别（复用 wingscribe）
 │   │   ├── quality.py       # 画质评估综合评分
-│   │   ├── pose.py          # 姿态可见性检测 + 飞版分类
+│   │   ├── pose.py          # 姿态可见性检测
 │   │   ├── focus.py         # AF 对焦点解析
 │   │   ├── grouper.py       # 连拍分组
 │   │   └── indexer.py       # 照片索引，RAW 解码
@@ -67,8 +67,8 @@ birder_photo_manager/
 |------|------|------|
 | `recognizer.py` | 鸟种识别，调用 YOLO + BioCLIP | wingscribe 核心模块 |
 | `quality.py` | 画质评估，含清晰度/对比度/曝光/姿态/对焦点 | OpenCV, NumPy |
-| `pose.py` | 姿态可见性检测（头/眼/身/尾/翼）+ 飞版分类 | ONNX 模型 |
-| `focus.py` | 解析相机 AF 对焦点数据，判断是否落在主体上 | EXIF 解析 |
+| `pose.py` | 姿态可见性检测（头/眼/身/尾/翼） | 几何启发式 |
+| `focus.py` | 解析相机 AF 对焦点数据（Olympus ORF 专用标签优先），判断是否落在主体上 | ExifTool |
 | `grouper.py` | 连拍分组，基于 EXIF 时间窗口 | EXIF 数据 |
 | `indexer.py` | 照片索引，支持 ORF/NEF 等 RAW 格式 | rawpy, Pillow |
 | `metadata.py` | EXIF/XMP 元数据读写，Lightroom 兼容 | exiftool |
@@ -118,13 +118,14 @@ class Recognizer:
 
 | 指标 | 方法 | 权重 | 参考 |
 |------|------|------|------|
-| 对焦清晰度 | Laplacian 方差 | 0.25 | wingscribe 现有模糊检测 |
+| 对焦清晰度 | Laplacian 方差 | 0.30 | wingscribe 现有模糊检测 |
 | 对比度 | 直方图标准差 | 0.10 | - |
 | 主体位置 | 鸟在画面中的位置和大小 | 0.10 | - |
 | 曝光 | 直方图分布均匀度 | 0.10 | - |
 | 姿态可见性 | 头/眼/身/尾/翼 5 项可见度 | 0.20 | PlumeLens bird_visibility |
-| 飞版加分 | 飞行姿态概率 P(fly) | 0.10 | PlumeLens flight_classifier |
-| 对焦准确性 | AF 对焦点是否落在鸟的眼/头部 | 0.15 | 相机 EXIF AF 数据 |
+| 对焦准确性 | AF 对焦点是否落在鸟的眼/头部 | 0.20 | 相机 EXIF AF 数据 |
+
+注: 飞版加分 (bif) 维度已移除（飞版判断启发式不够合理），其权重重新分配至 clarity 与 focus。AF 对焦点解析优先使用 Olympus 专用 ExifTool 标签（AFPointSelected / AFSelectedArea / AFFocusArea 等），无 AF 信息时不进行画面中心兜底，focus 维度返回中性分。
 
 **综合评分**:
 ```python
@@ -147,18 +148,16 @@ def calculate_quality_score(image: np.ndarray, bird_bbox: tuple,
     position = calculate_position(image.shape, bird_bbox)
     exposure = calculate_exposure(image)
     pose = calculate_pose_score(visibility)
-    bif = calculate_bif_score(visibility)
     focus = calculate_focus_score(focus_points, bird_bbox)
     
-    weights = [0.25, 0.10, 0.10, 0.10, 0.20, 0.10, 0.15]
+    weights = [0.30, 0.10, 0.10, 0.10, 0.20, 0.20]
     score = (
         clarity * weights[0] +
         contrast * weights[1] +
         position * weights[2] +
         exposure * weights[3] +
         pose * weights[4] +
-        bif * weights[5] +
-        focus * weights[6]
+        focus * weights[5]
     )
     return int(score)
 ```
@@ -444,18 +443,16 @@ metadata:
 quality:
   # 画质评估权重
   weights:
-    clarity: 0.25
+    clarity: 0.30
     contrast: 0.10
     position: 0.10
     exposure: 0.10
     pose: 0.20
-    bif: 0.10
-    focus: 0.15
+    focus: 0.20
   
-  # 头眼可见性 + 飞版自动升档阈值
+  # 头眼可见性
   pose_upgrade_threshold:
     head_eye_visible: true
-    flight_probability: 0.35
 
 grouper:
   # 连拍分组时间窗口（秒）

@@ -184,24 +184,6 @@ class TestQualityScorerDimensions:
         assert 0.0 < score < 1.0
         assert abs(score - 0.7) < 1e-6
 
-    def test_calculate_bif_score_flight_upgrade(self, scorer):
-        # 用 partial visibility 避免 pose=1.0 时 bonus 被上限截断
-        visibility = {"head": 0.5, "eye": 0.5, "body": 0.5, "tail": 0.5, "wing": 0.5}
-        no_flight = scorer.calculate_bif_score(visibility, flight_prob=0.0)
-        with_flight = scorer.calculate_bif_score(visibility, flight_prob=0.5)
-        assert with_flight > no_flight
-
-    def test_calculate_bif_score_capped_at_one(self, scorer):
-        # pose=1.0 + bonus 应被截断到 1.0
-        visibility = {"head": 1.0, "eye": 1.0, "body": 1.0, "tail": 1.0, "wing": 1.0}
-        score = scorer.calculate_bif_score(visibility, flight_prob=0.5)
-        assert score == 1.0
-
-    def test_calculate_bif_score_no_flight(self, scorer):
-        visibility = {"head": 1.0, "eye": 1.0, "body": 1.0, "tail": 1.0, "wing": 1.0}
-        score = scorer.calculate_bif_score(visibility, flight_prob=0.0)
-        assert 0.0 <= score <= 1.0
-
     def test_calculate_focus_score_inside_bbox(self, scorer):
         # 对焦点全部在 bbox 内
         score = scorer.calculate_focus_score([(50, 50), (55, 55)], (40, 40, 20, 20))
@@ -251,21 +233,21 @@ class TestQualityScorerOverall:
         )
         assert 0 <= result["score"] <= 100
 
-    def test_quality_score_details_has_all_seven_dimensions(self, scorer, sample_image):
+    def test_quality_score_details_has_all_six_dimensions(self, scorer, sample_image):
         result = scorer.calculate_quality_score(
             sample_image,
             bird_bbox=(25, 25, 50, 50),
             visibility={"head": 1.0, "eye": 1.0, "body": 1.0, "tail": 1.0, "wing": 1.0},
             focus_points=[(50, 50)],
         )
-        expected = {"clarity", "contrast", "position", "exposure", "pose", "bif", "focus"}
+        expected = {"clarity", "contrast", "position", "exposure", "pose", "focus"}
         assert expected.issubset(result["details"].keys())
 
     def test_accepts_custom_weights(self, sample_image):
         from src.core.quality import QualityScorer
         custom = {
             "clarity": 0.5, "contrast": 0.0, "position": 0.0,
-            "exposure": 0.0, "pose": 0.0, "bif": 0.0, "focus": 0.5,
+            "exposure": 0.0, "pose": 0.0, "focus": 0.5,
         }
         scorer = QualityScorer(weights=custom)
         result = scorer.calculate_quality_score(

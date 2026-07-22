@@ -205,7 +205,7 @@
                         <h6 class="card-subtitle mb-2 text-muted fst-italic">{{ photo.scientific_name }}</h6>
                         <div class="d-flex justify-content-between align-items-center mb-2">
                             <span class="location-tag">📍 {{ photo.location_tag }}</span>
-                            <span class="badge bg-light text-dark border">{{ (photo.confidence_score * 100)|int }}%</span>
+                            <span class="badge bg-light text-dark border">{{ ((photo.confidence_score or 0) * 100)|int }}%</span>
                         </div>
                         <div class="path-info" title="{{ photo.filename }}">📁 {{ photo.filename }}</div>
                         {% if photo.quality_score %}
