@@ -179,3 +179,29 @@ class QualityScorer:
         }
         weighted = sum(details[dim] * self.weights[dim] for dim in self.weights)
         return {"score": int(round(weighted * 100)), "details": details}
+
+    def score_from_path(self, image_path: str, bird_bbox: Tuple[int, int, int, int]) -> Dict:
+        """从图像路径和鸟框计算 7 维画质评分。
+
+        自动调用 PoseDetector 和 FocusParser 获取姿态与焦点信息。
+        """
+        from .pose import PoseDetector
+        from .focus import FocusParser
+
+        image = cv2.imread(image_path)
+        if image is None:
+            logging.error(f"Could not read image for quality scoring: {image_path}")
+            return {"score": 0, "details": {dim: 0.0 for dim in self.DEFAULT_WEIGHTS}}
+
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        pose = PoseDetector()
+        focus_parser = FocusParser()
+
+        visibility = pose.detect_visibility(image, bird_bbox)
+        flight_prob = pose.is_flying(image, bird_bbox)
+        focus_points = focus_parser.parse_af_points(image_path)
+        if not focus_points:
+            h, w = image.shape[:2]
+            focus_points = FocusParser.get_fallback_points(w, h)
+
+        return self.calculate_quality_score(image, bird_bbox, visibility, focus_points, flight_prob)
