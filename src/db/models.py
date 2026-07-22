@@ -23,6 +23,7 @@ def init_database(engine):
             ("rating", "INTEGER"),
             ("quality_score", "INTEGER"),
             ("quality_details", "TEXT"),
+            ("bird_bbox", "TEXT"),
             ("created_at", "DATETIME DEFAULT CURRENT_TIMESTAMP"),
         ]
         for col_name, col_type in missing_columns:
@@ -72,6 +73,7 @@ class Photo(Base):
     rating = Column(Integer)
     quality_score = Column(Integer)
     quality_details = Column(JSON)
+    bird_bbox = Column(JSON)
     created_at = Column(DateTime, default=datetime.utcnow)
     group_id = Column(Integer, ForeignKey("photo_groups.id"))
 

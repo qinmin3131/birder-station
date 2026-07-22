@@ -1,0 +1,155 @@
+from pathlib import Path
+from unittest.mock import ANY
+
+import pytest
+from PIL import Image
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+from src.db.models import Base, Photo
+from src.web import app as web_app
+
+
+@pytest.fixture
+def client(tmp_path, monkeypatch):
+    db_path = tmp_path / "test_review.db"
+    engine = create_engine(f"sqlite:///{db_path}")
+    Base.metadata.create_all(engine)
+    SessionLocal = sessionmaker(bind=engine)
+
+    monkeypatch.setattr(web_app, "db_path", db_path)
+    monkeypatch.setattr(web_app, "config", {"paths": {"source_dir": str(tmp_path)}})
+
+    def _get_session():
+        return SessionLocal()
+
+    monkeypatch.setattr(web_app, "get_sqlalchemy_session", _get_session)
+
+    # Mock focus parser to avoid exiftool dependency
+    class FakeFocusParser:
+        def parse_af_points(self, image_path):
+            return [(123, 456)]
+
+    monkeypatch.setattr(web_app, "focus_parser", FakeFocusParser())
+
+    with TestClient(web_app.app) as c:
+        yield c
+
+
+@pytest.fixture
+def sample_jpg(tmp_path):
+    img_path = tmp_path / "bird.jpg"
+    Image.new("RGB", (800, 600), color="green").save(img_path)
+    return img_path
+
+
+@pytest.fixture
+def sample_raw(tmp_path):
+    raw_path = tmp_path / "bird.orf"
+    raw_path.write_bytes(b"fake raw bytes")
+    return raw_path
+
+
+def _create_photo(session, **kwargs):
+    defaults = {
+        "file_path": "bird.jpg",
+        "filename": "bird.jpg",
+        "original_path": None,
+        "width": 800,
+        "height": 600,
+        "captured_at": None,
+        "captured_date": "2026-07-20",
+        "primary_bird_cn": "麻雀",
+        "scientific_name": "Passer montanus",
+        "confidence_score": 0.95,
+        "quality_score": 85,
+        "is_selected": False,
+        "rating": 0,
+    }
+    defaults.update(kwargs)
+    photo = Photo(**defaults)
+    session.add(photo)
+    session.commit()
+    session.refresh(photo)
+    return photo
+
+
+def test_review_returns_photo_metadata(client, sample_jpg, monkeypatch):
+    session = web_app.get_sqlalchemy_session()
+    photo = _create_photo(
+        session,
+        original_path=str(sample_jpg),
+        candidates_json=[{"sci": "Passer montanus", "cn": "麻雀", "score": 0.95}],
+        quality_details={"clarity": 80, "focus": 90},
+        bird_bbox=[100, 100, 300, 300],
+    )
+    session.close()
+
+    response = client.get(f"/api/photo/{photo.id}/review")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["photo"]["id"] == photo.id
+    assert data["photo"]["filename"] == "bird.jpg"
+    assert data["photo"]["primary_bird_cn"] == "麻雀"
+    assert data["photo"]["bird_bbox"] == [100, 100, 300, 300]
+    assert data["candidates"][0]["cn"] == "麻雀"
+    assert data["quality_details"]["focus"] == 90
+    assert data["af_points"] == [[123, 456]]
+
+
+def test_review_returns_404_when_photo_missing(client):
+    response = client.get("/api/photo/9999/review")
+    assert response.status_code == 404
+    assert "Photo not found" in response.json()["detail"]
+
+
+def test_review_returns_404_when_original_file_missing(client):
+    session = web_app.get_sqlalchemy_session()
+    photo = _create_photo(session, original_path="/nonexistent/bird.jpg")
+    photo_id = photo.id
+    session.close()
+
+    response = client.get(f"/api/photo/{photo_id}/review")
+    assert response.status_code == 404
+    assert "Original file not found" in response.json()["detail"]
+
+
+def test_preview_returns_jpeg_for_existing_jpg(client, sample_jpg):
+    session = web_app.get_sqlalchemy_session()
+    photo = _create_photo(session, original_path=str(sample_jpg))
+    photo_id = photo.id
+    session.close()
+
+    response = client.get(f"/api/photo/{photo_id}/preview")
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/jpeg"
+
+
+def test_preview_decodes_raw_to_temp_jpg(client, sample_raw, monkeypatch):
+    decoded_jpg = sample_raw.parent / "decoded.jpg"
+    Image.new("RGB", (800, 600), color="blue").save(decoded_jpg)
+
+    monkeypatch.setattr(
+        web_app.ImageProcessor, "is_raw", staticmethod(lambda path: True)
+    )
+    monkeypatch.setattr(
+        web_app.ImageProcessor,
+        "decode_raw_to_temp_jpg",
+        staticmethod(lambda path: str(decoded_jpg)),
+    )
+
+    session = web_app.get_sqlalchemy_session()
+    photo = _create_photo(session, original_path=str(sample_raw))
+    photo_id = photo.id
+    session.close()
+
+    response = client.get(f"/api/photo/{photo_id}/preview")
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/jpeg"
+
+
+def test_preview_returns_404_when_photo_missing(client):
+    response = client.get("/api/photo/9999/preview")
+    assert response.status_code == 404

@@ -8,18 +8,20 @@ import json
 from contextlib import asynccontextmanager
 from pathlib import Path
 from fastapi import FastAPI, Request, HTTPException, WebSocket
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from typing import Optional, List
+from typing import Optional, List, Any, Dict
 
 # Add project root to path for imports
 BASE_DIR = Path(__file__).parent.parent.parent.absolute()
 sys.path.append(str(BASE_DIR))
 
+from src.core.focus import FocusParser
+from src.core.processor import ImageProcessor
 from src.metadata.exif_writer import ExifWriter, write_metadata_for_photo
 from src.utils.config_loader import load_config, validate_paths_config
 from src.core.io.path_generator import PathGenerator
@@ -227,7 +229,7 @@ def index(request: Request, q: str = "", filter: str = "", date: str = "", limit
     # Check for first run or empty paths - redirect to settings if not configured
     if not skip_first_check and (is_first_run() or not is_paths_configured()):
         return templates.TemplateResponse(
-            name="settings.html",
+            request, name="settings.html",
             context={"request": request, "is_first_run": is_first_run()},
         )
 
@@ -281,8 +283,8 @@ def index(request: Request, q: str = "", filter: str = "", date: str = "", limit
     prev_offset = max(0, offset - limit)
     
     return templates.TemplateResponse(
-        name="index.html",
-        context={
+        request, name="index.html",
+            context={
             "request": request,
             "photos": display_photos,
             "query": q,
@@ -306,7 +308,7 @@ def admin_dashboard(request: Request):
 @app.get("/admin/index", response_class=HTMLResponse)
 def admin_index_page(request: Request):
     """Render the photo indexing page."""
-    return templates.TemplateResponse("admin_index.html", {"request": request})
+    return templates.TemplateResponse(request, "admin_index.html", {"request": request})
 
 
 def get_stats():
@@ -643,7 +645,7 @@ class SaveConfigRequest(BaseModel):
 @app.get("/settings", response_class=HTMLResponse)
 async def settings_page(request: Request):
     """Configuration page"""
-    return templates.TemplateResponse(name="settings.html", context={"request": request})
+    return templates.TemplateResponse(request, name="settings.html", context={"request": request})
 
 @app.get("/api/config")
 async def get_config():
@@ -827,7 +829,7 @@ def select_page(request: Request, date: str = ""):
             gid += 1
 
         return templates.TemplateResponse(
-            "select.html",
+            request, "select.html",
             {"request": request, "groups": display_groups, "current_date": date},
         )
     finally:
@@ -916,6 +918,112 @@ def write_photo_metadata(photo_id: int):
         session.close()
 
 
+focus_parser = FocusParser(exiftool_path=exif_writer.exiftool_path)
+
+
+def _resolve_original_path(photo: Photo) -> str:
+    """Return absolute path to the original photo file."""
+    path = photo.original_path or photo.file_path
+    if not path:
+        return ""
+    path_obj = Path(path)
+    if path_obj.is_absolute():
+        return str(path_obj)
+    source_dir = config.get("paths", {}).get("source_dir", "")
+    if source_dir:
+        return str(Path(source_dir) / path_obj)
+    return str(path_obj)
+
+
+@app.get("/api/photo/{photo_id}/review")
+def get_photo_review(photo_id: int):
+    """Return full review details for a photo: metadata, candidates, quality details, AF points."""
+    session = get_sqlalchemy_session()
+    try:
+        photo = session.query(Photo).filter(Photo.id == photo_id).first()
+        if not photo:
+            raise HTTPException(status_code=404, detail="Photo not found")
+
+        original_path = _resolve_original_path(photo)
+        if not original_path or not Path(original_path).exists():
+            raise HTTPException(status_code=404, detail="Original file not found")
+
+        # AF points; fallback to center if not available
+        af_points = focus_parser.parse_af_points(original_path)
+        if not af_points and photo.width and photo.height:
+            af_points = FocusParser.get_fallback_points(photo.width, photo.height)
+
+        candidates: List[Any] = []
+        if photo.candidates_json:
+            try:
+                candidates = json.loads(photo.candidates_json) if isinstance(photo.candidates_json, str) else photo.candidates_json
+            except Exception:
+                pass
+
+        quality_details: Dict[str, Any] = {}
+        if photo.quality_details:
+            try:
+                quality_details = json.loads(photo.quality_details) if isinstance(photo.quality_details, str) else photo.quality_details
+            except Exception:
+                pass
+
+        return {
+            "photo": {
+                "id": photo.id,
+                "filename": photo.filename,
+                "primary_bird_cn": photo.primary_bird_cn,
+                "scientific_name": photo.scientific_name,
+                "confidence_score": photo.confidence_score,
+                "quality_score": photo.quality_score,
+                "bird_bbox": photo.bird_bbox,
+                "width": photo.width,
+                "height": photo.height,
+                "captured_at": photo.captured_at.isoformat() if photo.captured_at else None,
+                "captured_date": photo.captured_date,
+                "location_tag": photo.location_tag,
+                "original_path": original_path,
+                "is_selected": photo.is_selected,
+                "rating": photo.rating,
+            },
+            "candidates": candidates,
+            "quality_details": quality_details,
+            "af_points": af_points,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get photo review {photo_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        session.close()
+
+
+@app.get("/api/photo/{photo_id}/preview")
+def get_photo_preview(photo_id: int):
+    """Return a JPEG preview of the photo. For RAW files, a temporary decoded JPEG is generated."""
+    session = get_sqlalchemy_session()
+    try:
+        photo = session.query(Photo).filter(Photo.id == photo_id).first()
+        if not photo:
+            raise HTTPException(status_code=404, detail="Photo not found")
+
+        original_path = _resolve_original_path(photo)
+        if not original_path or not Path(original_path).exists():
+            raise HTTPException(status_code=404, detail="Original file not found")
+
+        if ImageProcessor.is_raw(original_path):
+            tmp_path = ImageProcessor.decode_raw_to_temp_jpg(original_path)
+            return FileResponse(tmp_path, media_type="image/jpeg")
+        return FileResponse(original_path)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get photo preview {photo_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        session.close()
+
+
 @app.post("/api/gallery/write_metadata")
 def write_gallery_metadata(filter: str = "", date: str = ""):
     """Batch write metadata for selected/filtered photos."""
@@ -953,7 +1061,7 @@ def write_gallery_metadata(filter: str = "", date: str = ""):
 def import_page(request: Request):
     """照片导入向导：选择源目录、扫描预览、启动导入。"""
     return templates.TemplateResponse(
-        "import.html",
+        request, "import.html",
         {
             "request": request,
             "default_source_dir": config.get("paths", {}).get("source_dir", ""),
@@ -1050,7 +1158,7 @@ def gallery_page(request: Request, q: str = "", filter: str = "", date: str = ""
         has_prev = offset > 0
 
         return templates.TemplateResponse(
-            "gallery.html",
+            request, "gallery.html",
             {
                 "request": request,
                 "photos": display_photos,
@@ -1121,7 +1229,7 @@ def guide_page(request: Request, q: str = ""):
         total_families = len(families)
 
         return templates.TemplateResponse(
-            "guide.html",
+            request, "guide.html",
             {
                 "request": request,
                 "families": families,

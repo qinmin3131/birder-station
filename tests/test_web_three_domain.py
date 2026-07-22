@@ -21,11 +21,9 @@ class TemplateRecorder:
     def __init__(self):
         self.calls = []
 
-    def TemplateResponse(self, template_name=None, context=None, *, name=None, **kwargs):
-        if name is not None:
-            template_name = name
-        if context is None:
-            context = {}
+    def TemplateResponse(self, request, *args, **kwargs):
+        template_name = args[0] if args else kwargs.get("name")
+        context = args[1] if len(args) > 1 else kwargs.get("context", {})
         payload = {"template": template_name, "context": context}
         self.calls.append(payload)
         return payload

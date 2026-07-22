@@ -157,6 +157,26 @@
     - 清理：删除临时测试脚本 `import_test.py` 与结果 `import_test_result.txt`。
     - 提交 `TBD`：功能: 添加导入覆盖功能并修复 sqlite3 参数绑定。
 
+11. **选片大图复核界面与模板签名修复**
+    - 实现复核后端 API：
+      - `src/web/app.py` 新增 `GET /api/photo/{photo_id}/review`：返回照片元数据、候选 Top5、质量分项、检测框、AF 点。
+      - 新增 `GET /api/photo/{photo_id}/preview`：返回 JPEG 预览，RAW 文件自动解码为临时 JPG。
+    - 数据模型与流水线：
+      - `src/db/models.py` 新增 `bird_bbox` JSON 字段，迁移列表包含该列。
+      - `src/pipeline_runner.py` 在 `process_image()` 和 `_archive_item()` 中传递并保存 `bird_bbox`。
+    - 前端弹窗：
+      - `src/web/templates/select.html` 新增 Bootstrap 大图复核弹窗，左侧 Canvas 叠加检测框（绿色矩形）和 AF 点（红色圆圈），右侧显示候选结果、7 维质量分项进度条、操作按钮。
+    - 新增测试：
+      - `tests/test_web_review.py`：覆盖 review 返回字段、404、preview 返回 JPEG/RAW 解码、缺失照片 404。
+    - 修复模板渲染签名：
+      - 当前 FastAPI/Starlette 的 `Jinja2Templates.TemplateResponse` 要求第一个参数为 `request`，而项目中所有调用仍使用旧签名 `(name, context)`，导致所有页面 500（`TypeError: unhashable type: 'dict'`）。
+      - 将 `src/web/app.py` 与 `src/web/admin_service.py` 中全部 `TemplateResponse` 调用改为新版 `TemplateResponse(request, name, context)`。
+      - 同步更新 `tests/test_web_app.py`、`tests/test_web_index.py`、`tests/test_web_three_domain.py`、`tests/test_web_admin_service.py` 中的 `TemplateRecorder` mock 以兼容新版签名。
+    - 验证：
+      - 完整测试套件：`332 passed, 1 skipped`。
+      - 本地启动服务，访问 `/select` 返回 200，页面包含 `reviewModal`、`openReview`、`/preview` 等关键元素；`/api/photo/{id}/review` 可正常返回 JSON。
+    - 提交 `TBD`：功能: 实现选片大图复核界面并修复模板渲染签名。
+
 ### 待处理
 - [ ] 与 `spec.md` 对齐：当前 spec 中是否有三域 Web 的详细设计需要确认
 - [x] 将 QualityScorer 集成进 pipeline_runner
@@ -167,7 +187,7 @@
 - [x] 实现照片导入 Web 流程
 - [x] 清理运行时文件并验证导入流程后端接口
 - [x] 实现导入覆盖功能
-- [ ] 实现选片大图复核界面（检测框/AF点/质量分项）
+- [x] 实现选片大图复核界面（检测框/AF点/质量分项）
 - [x] 决定飞版判断策略：暂时保留当前自动飞版逻辑，后续调整
 
 ### 文件变更（本次未提交）

@@ -7,13 +7,13 @@ from pathlib import Path
 def admin_dashboard(request, templates, is_paths_configured, get_stats):
     if not is_paths_configured():
         return templates.TemplateResponse(
-            name="settings.html",
+            request, name="settings.html",
             context={"request": request, "is_first_run": False},
         )
     stats = get_stats()
     return templates.TemplateResponse(
-        name="admin.html",
-        context={"request": request, "stats": stats},
+        request, name="admin.html",
+            context={"request": request, "stats": stats},
     )
 
 

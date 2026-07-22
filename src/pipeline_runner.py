@@ -479,6 +479,7 @@ class WingScribePipeline:
 
         quality_score = item.get('quality_score', 0)
         quality_details = item.get('quality_details', {})
+        bird_bbox = item.get('bird_bbox')
         candidates_data = []
 
         # Initialize default values
@@ -616,6 +617,7 @@ class WingScribePipeline:
                 'candidates_json': json.dumps(candidates_data, ensure_ascii=False),
                 'quality_score': quality_score,
                 'quality_details': quality_details,
+                'bird_bbox': bird_bbox,
             })
             self._new_photo_ids.append(photo_id)
         else:
@@ -635,6 +637,7 @@ class WingScribePipeline:
                 'candidates_json': json.dumps(candidates_data, ensure_ascii=False),
                 'quality_score': quality_score,
                 'quality_details': quality_details,
+                'bird_bbox': bird_bbox,
             })
             if new_photo_id:
                 self._new_photo_ids.append(new_photo_id)
@@ -758,6 +761,7 @@ class WingScribePipeline:
                         'file_hash': file_hash,
                         'width': img_width,
                         'height': img_height,
+                        'bird_bbox': box,
                         'detection_index': i,
                         'detections_count': len(detections),
                         'quality_score': quality_score,
