@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>图库 - 飞羽志 WingScribe</title>
+    <link rel="icon" type="image/x-icon" href="/lib/favicon.ico">
+    <link href="/lib/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.bootcdn.net/ajax/libs/bootstrap-icons/1.11.3/font/bootstrap-icons.min.css">
+    <style>
+        body { font-size: 14px; }
+        .card-img-top { height: 250px; object-fit: cover; cursor: pointer; }
+        .confidence-high { color: green; }
+        .confidence-med { color: orange; }
+        .confidence-low { color: red; }
+        .card.status-uncertain { border: 2px solid #ffc107; }
+        .badge-uncertain { background-color: #ffc107 !important; color: #000; }
+        .location-tag { font-size: 0.8rem; color: #666; }
+        .path-info { font-size: 0.75rem; color: #999; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .photo-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; width: 100%; }
+        .photo-grid .photo-card { min-width: 0; }
+        @media (max-width: 991.98px) { .photo-grid { grid-template-columns: repeat(3, 1fr); } }
+        @media (max-width: 767.98px) { .photo-grid { grid-template-columns: repeat(2, 1fr); } }
+        .status-bar { padding: 8px 12px; background: #f8f9fa; border-radius: 6px; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg shadow-sm" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+        <div class="container">
+            <a class="navbar-brand fw-bold text-white" href="/">
+                <span style="font-size: 1.3em;">🕊️</span> 飞羽志 <span class="opacity-75">| WingScribe</span>
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav me-auto">
+                    <li class="nav-item"><a class="nav-link text-white" href="/select">选片</a></li>
+                    <li class="nav-item"><a class="nav-link text-white active bg-white bg-opacity-25 rounded" href="/gallery">图库</a></li>
+                    <li class="nav-item"><a class="nav-link text-white" href="/guide">图鉴</a></li>
+                    <li class="nav-item"><a class="nav-link text-white" href="/admin">管理与任务</a></li>
+                    <li class="nav-item"><a class="nav-link text-white" href="/settings"><i class="bi bi-gear-fill"></i> 设置</a></li>
+                </ul>
+                <form class="d-flex" action="/gallery" method="get">
+                    <input class="form-control me-2 bg-white border-0" type="search" name="q" placeholder="搜索鸟种/地点..." value="{{ query }}">
+                    <button class="btn btn-light" type="submit">搜索</button>
+                </form>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid mt-4 px-4">
+        <!-- 筛选栏 -->
+        <div class="row mb-3">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-body d-flex flex-wrap gap-2 align-items-center">
+                        <span class="text-muted small">筛选：</span>
+                        <a href="/gallery" class="btn btn-sm btn-outline-secondary {{ 'active' if not current_filter and not current_date and not query else '' }}">全部</a>
+                        <a href="/gallery?filter=selected" class="btn btn-sm btn-outline-success {{ 'active' if current_filter == 'selected' else '' }}">已选中</a>
+                        <a href="/gallery?filter=uncertain" class="btn btn-sm btn-outline-warning {{ 'active' if current_filter == 'uncertain' else '' }}">待确认</a>
+                        <form class="d-flex gap-2 ms-auto" action="/gallery" method="get">
+                            <select class="form-select form-select-sm" name="date" onchange="this.form.submit()" style="width: auto;">
+                                <option value="">所有日期</option>
+                                {% for d in available_dates %}
+                                <option value="{{ d }}" {{ 'selected' if current_date == d }}>{{ d }}</option>
+                                {% endfor %}
+                            </select>
+                            <select class="form-select form-select-sm" name="limit" onchange="this.form.submit()" style="width: auto;">
+                                <option value="20" {{ 'selected' if limit == 20 }}>20</option>
+                                <option value="50" {{ 'selected' if limit == 50 }}>50</option>
+                                <option value="100" {{ 'selected' if limit == 100 }}>100</option>
+                            </select>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="status-bar">
+            <span class="text-muted small">
+                显示 {{ offset + 1 }}-{{ offset + photos|length }} / 共 {{ total_count }} 张
+                {% if current_date %} | 日期：{{ current_date }} {% endif %}
+                {% if query %} | 搜索："{{ query }}" {% endif %}
+            </span>
+            <div class="btn-group btn-group-sm">
+                <a href="/gallery?limit={{ limit }}&offset={{ prev_offset }}&filter={{ current_filter }}&date={{ current_date }}&q={{ query }}" class="btn btn-outline-secondary {% if not has_prev %}disabled{% endif %}">上一页</a>
+                <a href="/gallery?limit={{ limit }}&offset={{ next_offset }}&filter={{ current_filter }}&date={{ current_date }}&q={{ query }}" class="btn btn-outline-secondary {% if not has_next %}disabled{% endif %}">下一页</a>
+            </div>
+        </div>
+
+        {% if not photos %}
+        <div class="alert alert-info">暂无照片，请先在选片页面或管理任务中导入。</div>
+        {% endif %}
+
+        <div class="photo-grid">
+            {% for photo in photos %}
+            {% set is_uncertain = (photo.primary_bird_cn == '待确认鸟种' or photo.scientific_name == 'Uncertain') %}
+            {% set processed_path = photo.web_processed_path if photo.web_processed_path else '' %}
+            {% set raw_path = photo.web_raw_path if photo.web_raw_path else '' %}
+            <div class="photo-card">
+                <div class="card h-100 shadow-sm {{ 'status-uncertain' if is_uncertain else '' }}">
+                    <div class="position-relative">
+                        <div class="btn-group btn-group-sm position-absolute top-0 start-0 m-1" style="z-index: 10;">
+                            {% if processed_path %}<a href="{{ processed_path }}" download class="btn btn-dark btn-sm">裁切</a>{% endif %}
+                            {% if raw_path %}<a href="{{ raw_path }}" download class="btn btn-dark btn-sm">原图</a>{% endif %}
+                        </div>
+                        <img src="{{ processed_path if processed_path else raw_path }}" class="card-img-top" alt="{{ photo.primary_bird_cn }}" loading="lazy">
+                    </div>
+                    <div class="card-body">
+                        <h5 class="card-title">
+                            {{ photo.primary_bird_cn }}
+                            {% if is_uncertain %}<span class="badge badge-uncertain small align-top">?</span>{% endif %}
+                        </h5>
+                        <h6 class="card-subtitle mb-2 text-muted fst-italic">{{ photo.scientific_name }}</h6>
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <span class="location-tag">📍 {{ photo.location_tag }}</span>
+                            <span class="badge bg-light text-dark border">{{ (photo.confidence_score * 100)|int }}%</span>
+                        </div>
+                        <div class="path-info" title="{{ photo.filename }}">📁 {{ photo.filename }}</div>
+                        {% if photo.quality_score %}
+                        <div class="mt-2">
+                            <span class="badge bg-info text-dark">画质 {{ photo.quality_score|int }}</span>
+                        </div>
+                        {% endif %}
+                    </div>
+                    <div class="card-footer text-muted small">{{ photo.captured_date }}</div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+
+        <div class="d-flex justify-content-center mt-4 mb-5">
+            <div class="btn-group btn-group-sm">
+                <a href="/gallery?limit={{ limit }}&offset={{ prev_offset }}&filter={{ current_filter }}&date={{ current_date }}&q={{ query }}" class="btn btn-outline-secondary {% if not has_prev %}disabled{% endif %}">上一页</a>
+                <a href="/gallery?limit={{ limit }}&offset={{ next_offset }}&filter={{ current_filter }}&date={{ current_date }}&q={{ query }}" class="btn btn-outline-secondary {% if not has_next %}disabled{% endif %}">下一页</a>
+            </div>
+        </div>
+    </div>
+
+    <script src="/lib/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

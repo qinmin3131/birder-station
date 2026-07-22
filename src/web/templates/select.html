@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>选片 - 飞羽志 WingScribe</title>
+    <link rel="icon" type="image/x-icon" href="/lib/favicon.ico">
+    <link href="/lib/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.bootcdn.net/ajax/libs/bootstrap-icons/1.11.3/font/bootstrap-icons.min.css">
+    <style>
+        body { font-size: 14px; }
+        .card-img-top { height: 220px; object-fit: cover; cursor: pointer; }
+        .photo-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; width: 100%; }
+        .photo-grid .photo-card { min-width: 0; }
+        @media (max-width: 1199.98px) { .photo-grid { grid-template-columns: repeat(4, 1fr); } }
+        @media (max-width: 991.98px) { .photo-grid { grid-template-columns: repeat(3, 1fr); } }
+        @media (max-width: 767.98px) { .photo-grid { grid-template-columns: repeat(2, 1fr); } }
+        .selected-card { border: 3px solid #198754; box-shadow: 0 0 0 0.2rem rgba(25, 135, 84, 0.25); }
+        .rejected-card { opacity: 0.55; }
+        .group-header { background: #f8f9fa; border-left: 4px solid #0d6efd; padding: 8px 12px; margin: 16px 0 8px; border-radius: 4px; }
+        .score-bar { height: 4px; border-radius: 2px; background: #e9ecef; margin-top: 4px; overflow: hidden; }
+        .score-fill { height: 100%; background: linear-gradient(90deg, #dc3545, #ffc107, #198754); }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg shadow-sm" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+        <div class="container">
+            <a class="navbar-brand fw-bold text-white" href="/">
+                <span style="font-size: 1.3em;">🕊️</span> 飞羽志 <span class="opacity-75">| WingScribe</span>
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav me-auto">
+                    <li class="nav-item"><a class="nav-link text-white active bg-white bg-opacity-25 rounded" href="/select">选片</a></li>
+                    <li class="nav-item"><a class="nav-link text-white" href="/gallery">图库</a></li>
+                    <li class="nav-item"><a class="nav-link text-white" href="/guide">图鉴</a></li>
+                    <li class="nav-item"><a class="nav-link text-white" href="/admin">管理与任务</a></li>
+                    <li class="nav-item"><a class="nav-link text-white" href="/settings"><i class="bi bi-gear-fill"></i> 设置</a></li>
+                </ul>
+                <form class="d-flex" action="/select" method="get">
+                    <input class="form-control me-2 bg-white border-0" type="search" name="date" placeholder="选择日期 YYYY-MM-DD" value="{{ current_date }}">
+                    <button class="btn btn-light" type="submit">筛选</button>
+                </form>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid mt-4 px-4">
+        <div class="row mb-3">
+            <div class="col-12 d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">🎯 选片工作台</h5>
+                <div class="btn-group btn-group-sm">
+                    <button class="btn btn-success" onclick="batchAction('select')">批量选中 ≥80分</button>
+                    <button class="btn btn-outline-secondary" onclick="batchAction('keep')">保留</button>
+                    <button class="btn btn-outline-danger" onclick="batchAction('reject')">淘汰</button>
+                    <a href="/gallery" class="btn btn-primary">查看本次外拍 → 图库</a>
+                </div>
+            </div>
+        </div>
+
+        {% if not groups %}
+        <div class="alert alert-info">
+            暂无待选片照片。请先导入并运行识别 Pipeline，然后回到此页面。
+        </div>
+        {% endif %}
+
+        {% for group in groups %}
+        <div class="group-header d-flex justify-content-between align-items-center">
+            <span>📦 连拍组 #{{ group.id }} · {{ group.date }} · {{ group.photos|length }} 张</span>
+            <button class="btn btn-sm btn-outline-primary" onclick="pickBest({{ group.id }})">选最佳</button>
+        </div>
+
+        <div class="photo-grid mb-4">
+            {% for photo in group.photos %}
+            {% set processed_path = photo.web_processed_path if photo.web_processed_path else '' %}
+            {% set raw_path = photo.web_raw_path if photo.web_raw_path else '' %}
+            <div class="photo-card" id="photo-card-{{ photo.id }}">
+                <div class="card h-100 shadow-sm {{ 'selected-card' if photo.is_selected else '' }} {{ 'rejected-card' if photo.is_rejected else '' }}"
+                         data-id="{{ photo.id }}"
+                         data-score="{{ photo.quality_score|default(0) }}">
+                    <div class="position-relative">
+                        <div class="btn-group btn-group-sm position-absolute top-0 start-0 m-1" style="z-index: 10;">
+                            {% if processed_path %}<a href="{{ processed_path }}" download class="btn btn-dark btn-sm">裁切</a>{% endif %}
+                            {% if raw_path %}<a href="{{ raw_path }}" download class="btn btn-dark btn-sm">原图</a>{% endif %}
+                        </div>
+                        <img src="{{ processed_path if processed_path else raw_path }}" class="card-img-top" alt="{{ photo.primary_bird_cn }}" loading="lazy">
+                    </div>
+                    <div class="card-body">
+                        <h6 class="card-title">{{ photo.primary_bird_cn }}</h6>
+                        <div class="d-flex justify-content-between align-items-center mb-1">
+                            <span class="small text-muted">📍 {{ photo.location_tag }}</span>
+                            <span class="badge bg-{{ 'success' if photo.quality_score >= 80 else 'warning' if photo.quality_score >= 60 else 'secondary' }}">
+                                {{ photo.quality_score|default(0)|int }}
+                            </span>
+                        </div>
+                        <div class="score-bar">
+                            <div class="score-fill" style="width: {{ photo.quality_score|default(0) }}%;"></div>
+                        </div>
+                        <div class="d-grid gap-2 mt-2">
+                            <button class="btn btn-sm btn-outline-success select-btn" onclick="markPhoto({{ photo.id }}, 'select')">✅ 选中</button>
+                            <button class="btn btn-sm btn-outline-danger reject-btn" onclick="markPhoto({{ photo.id }}, 'reject')">❌ 淘汰</button>
+                        </div>
+                    </div>
+                    <div class="card-footer text-muted small">{{ photo.captured_date }}</div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% endfor %}
+    </div>
+
+    <script src="/lib/js/bootstrap.bundle.min.js"></script>
+    <script>
+        function markPhoto(id, action) {
+            const card = document.querySelector(`#photo-card-${id} .card`);
+            card.classList.remove('selected-card', 'rejected-card');
+            if (action === 'select') card.classList.add('selected-card');
+            if (action === 'reject') card.classList.add('rejected-card');
+            fetch('/api/select/mark', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({photo_id: id, action: action})
+            }).catch(e => console.error(e));
+        }
+
+        function pickBest(groupId) {
+            alert('选最佳功能：待后端按组内最高分自动标记');
+        }
+
+        function batchAction(action) {
+            const cards = document.querySelectorAll('.photo-card .card');
+            cards.forEach(card => {
+                const id = card.dataset.id;
+                const score = parseFloat(card.dataset.score) || 0;
+                if (action === 'select' && score >= 80) markPhoto(id, 'select');
+                if (action === 'reject' && score < 50) markPhoto(id, 'reject');
+            });
+        }
+    </script>
+</body>
+</html>

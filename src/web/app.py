@@ -24,7 +24,7 @@ from src.metadata.exif_writer import ExifWriter
 from src.utils.config_loader import load_config, validate_paths_config
 from src.core.io.path_generator import PathGenerator
 from src.core.indexer import PhotoIndexer
-from src.db.models import init_database as init_sqlalchemy_db
+from src.db.models import init_database as init_sqlalchemy_db, Photo, Species
 from src.db.repository import PhotoRepository
 from src.web.routes.recognition import router as recognition_router
 from src.web import task_manager as task_manager_module
@@ -715,6 +715,222 @@ def index_photos(req: IndexRequest):
     except Exception as e:
         logger.error(f"Indexing failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        session.close()
+
+class SelectMarkRequest(BaseModel):
+    photo_id: int
+    action: str  # select | keep | reject
+
+
+# --- Three-domain web routes ---
+
+@app.get("/select", response_class=HTMLResponse)
+def select_page(request: Request, date: str = ""):
+    """选片工作台：按日期简单分组展示照片，支持标记选中/淘汰。"""
+    session = get_sqlalchemy_session()
+    try:
+        query = session.query(Photo)
+        if date:
+            query = query.filter(Photo.captured_date == date)
+        photos = query.order_by(Photo.captured_date.desc(), Photo.id.desc()).limit(500).all()
+
+        # Simple grouping by captured_date
+        groups_map = {}
+        for p in photos:
+            key = p.captured_date or "未知日期"
+            groups_map.setdefault(key, []).append(p)
+
+        display_groups = []
+        group_id = 1
+        for key in sorted(groups_map.keys(), reverse=True):
+            group_photos = []
+            for p in groups_map[key]:
+                group_photos.append({
+                    "id": p.id,
+                    "primary_bird_cn": p.primary_bird_cn,
+                    "scientific_name": p.scientific_name,
+                    "location_tag": p.location_tag,
+                    "captured_date": p.captured_date,
+                    "quality_score": p.quality_score or 0,
+                    "is_selected": p.is_selected or False,
+                    "is_rejected": p.rating == -1,
+                    "web_processed_path": resolve_processed_web_path(p.file_path) if p.file_path else None,
+                    "web_raw_path": resolve_web_path(p.original_path) if p.original_path else None,
+                })
+            display_groups.append({
+                "id": group_id,
+                "date": key,
+                "photos": group_photos,
+            })
+            group_id += 1
+
+        return templates.TemplateResponse(
+            "select.html",
+            {"request": request, "groups": display_groups, "current_date": date},
+        )
+    finally:
+        session.close()
+
+
+@app.post("/api/select/mark")
+def select_mark(req: SelectMarkRequest):
+    """标记照片选中/保留/淘汰状态。"""
+    session = get_sqlalchemy_session()
+    try:
+        photo = session.query(Photo).filter(Photo.id == req.photo_id).first()
+        if not photo:
+            raise HTTPException(status_code=404, detail="Photo not found")
+        if req.action == "select":
+            photo.is_selected = True
+            photo.rating = max(photo.rating or 0, 1)
+        elif req.action == "reject":
+            photo.is_selected = False
+            photo.rating = -1
+        elif req.action == "keep":
+            photo.is_selected = False
+            photo.rating = max(photo.rating or 0, 1)
+        else:
+            raise HTTPException(status_code=400, detail="Invalid action")
+        session.commit()
+        return {"status": "success", "photo_id": req.photo_id, "action": req.action}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to mark photo {req.photo_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        session.close()
+
+
+@app.get("/gallery", response_class=HTMLResponse)
+def gallery_page(request: Request, q: str = "", filter: str = "", date: str = "", limit: int = 50, offset: int = 0):
+    """图库浏览：按时间/地点/鸟种筛选。"""
+    session = get_sqlalchemy_session()
+    try:
+        query = session.query(Photo)
+        if q:
+            query = query.filter(
+                (Photo.primary_bird_cn.like(f"%{q}%")) |
+                (Photo.scientific_name.like(f"%{q}%")) |
+                (Photo.location_tag.like(f"%{q}%")) |
+                (Photo.captured_date.like(f"%{q}%"))
+            )
+        if filter == "uncertain":
+            query = query.filter(
+                (Photo.primary_bird_cn == "待确认鸟种") | (Photo.scientific_name == "Uncertain")
+            )
+        elif filter == "selected":
+            query = query.filter(Photo.is_selected == True)
+        if date:
+            query = query.filter(Photo.captured_date == date)
+
+        total_count = query.count()
+        photos = query.order_by(Photo.captured_date.desc(), Photo.id.desc()).offset(offset).limit(limit).all()
+
+        display_photos = []
+        for p in photos:
+            display_photos.append({
+                "id": p.id,
+                "primary_bird_cn": p.primary_bird_cn,
+                "scientific_name": p.scientific_name,
+                "location_tag": p.location_tag,
+                "captured_date": p.captured_date,
+                "confidence_score": p.confidence_score or 0,
+                "quality_score": p.quality_score or 0,
+                "is_selected": p.is_selected or False,
+                "filename": p.filename,
+                "candidates_json": p.candidates_json,
+                "web_processed_path": resolve_processed_web_path(p.file_path) if p.file_path else None,
+                "web_raw_path": resolve_web_path(p.original_path) if p.original_path else None,
+            })
+
+        available_dates = [d[0] for d in session.query(Photo.captured_date).distinct().order_by(Photo.captured_date.desc()).all() if d[0]]
+
+        has_next = (offset + limit) < total_count
+        has_prev = offset > 0
+
+        return templates.TemplateResponse(
+            "gallery.html",
+            {
+                "request": request,
+                "photos": display_photos,
+                "query": q,
+                "current_filter": filter,
+                "current_date": date,
+                "limit": limit,
+                "offset": offset,
+                "total_count": total_count,
+                "available_dates": available_dates,
+                "has_next": has_next,
+                "has_prev": has_prev,
+                "next_offset": offset + limit,
+                "prev_offset": max(0, offset - limit),
+            },
+        )
+    finally:
+        session.close()
+
+
+@app.get("/guide", response_class=HTMLResponse)
+def guide_page(request: Request, q: str = ""):
+    """鸟类图鉴：已解锁物种墙，按科分组。"""
+    session = get_sqlalchemy_session()
+    try:
+        species_query = session.query(Species).filter(Species.photo_count > 0)
+        if q:
+            species_query = species_query.filter(
+                (Species.chinese_name.like(f"%{q}%")) |
+                (Species.scientific_name.like(f"%{q}%")) |
+                (Species.family_cn.like(f"%{q}%")) |
+                (Species.family_sci.like(f"%{q}%"))
+            )
+        species_list = species_query.order_by(Species.family_cn, Species.chinese_name).all()
+
+        # Group by family
+        families_map = {}
+        for sp in species_list:
+            key = sp.family_cn or "未分类"
+            families_map.setdefault(key, {
+                "family_cn": key,
+                "family_sci": sp.family_sci or "",
+                "species": [],
+            })
+            # Find best thumbnail: highest quality_score or latest photo
+            photo = session.query(Photo).filter(
+                Photo.scientific_name == sp.scientific_name
+            ).order_by(Photo.quality_score.desc(), Photo.captured_date.desc()).first()
+            thumb = None
+            first_date = ""
+            last_date = ""
+            if photo:
+                thumb = resolve_processed_web_path(photo.file_path) or resolve_web_path(photo.original_path)
+                first_date = photo.captured_date or ""
+                last_date = photo.captured_date or ""
+            families_map[key]["species"].append({
+                "scientific_name": sp.scientific_name,
+                "chinese_name": sp.chinese_name,
+                "photo_count": sp.photo_count or 0,
+                "thumbnail_url": thumb,
+                "first_date": first_date,
+                "last_date": last_date,
+                "is_new": False,  # TODO: determine if new in current outing
+            })
+
+        families = sorted(families_map.values(), key=lambda x: x["family_cn"])
+        total_species = sum(len(f["species"]) for f in families)
+        total_families = len(families)
+
+        return templates.TemplateResponse(
+            "guide.html",
+            {
+                "request": request,
+                "families": families,
+                "total_species": total_species,
+                "total_families": total_families,
+                "query": q,
+            },
+        )
     finally:
         session.close()
 

@@ -47,16 +47,31 @@
    - 修复 `tests/test_pipeline_logic.py` 的 mock 以匹配 `add_photo_record(record)` 单参数签名
    - 调整 `tests/test_pose.py` 的可见度断言，匹配新的启发式默认值
    - 完整测试套件：301 passed, 1 skipped
-   - 提交 `TBD`：功能: 将 QualityScorer 集成到 pipeline_runner
+   - 提交 `f182fad`：功能: 将 QualityScorer 集成到 pipeline_runner
+
+5. **三域 Web 路由实现**
+   - `src/web/app.py` 新增 `/select`、`/gallery`、`/guide` 路由和 `/api/select/mark` API
+   - `/select`：按日期分组展示照片，支持选中/淘汰/选最佳按钮，前端可调用 mark API
+   - `/gallery`：按时间/地点/鸟种筛选，支持已选中/待确认/全部过滤和分页
+   - `/guide`：按科分组展示已解锁物种，使用最高分照片作为封面缩略图
+   - 新增模板：
+     - `src/web/templates/select.html`
+     - `src/web/templates/gallery.html`
+     - `src/web/templates/guide.html`
+   - 新增测试：`tests/test_web_three_domain.py`（7 个用例全部通过）
+   - 完整测试套件：308 passed, 1 skipped
+   - 提交 `TBD`：功能: 实现三域 Web 路由 /select /gallery /guide
 
 ### 待处理
-- [ ] 实现三域 Web 路由 `/select`、`/gallery`、`/guide`
 - [ ] 与 `spec.md` 对齐：当前 spec 中是否有三域 Web 的详细设计需要确认
 - [x] 将 QualityScorer 集成进 pipeline_runner
+- [x] 实现三域 Web 路由 `/select`、`/gallery`、`/guide`
 - [x] 决定飞版判断策略：暂时保留当前自动飞版逻辑，后续调整
 
 ### 文件变更（本次未提交）
-- `src/pipeline_runner.py`
-- `tests/test_pipeline_logic.py`
-- `tests/test_pose.py`
+- `src/web/app.py`
+- `src/web/templates/select.html`
+- `src/web/templates/gallery.html`
+- `src/web/templates/guide.html`
+- `tests/test_web_three_domain.py`
 - `.context/worklog.md`（本文件）
