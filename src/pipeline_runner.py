@@ -16,7 +16,7 @@ sys.path.append(PROJECT_ROOT)
 
 from src.metadata.ioc_manager import IOCManager
 from src.core.detector import BirdDetector
-from src.core.quality import QualityChecker
+from src.core.quality import QualityChecker, QualityScorer
 from src.core.processor import ImageProcessor
 from src.recognition.inference_local import LocalBirdRecognizer
 from src.recognition.inference_dongniao import DongniaoRecognizer
@@ -471,6 +471,9 @@ class WingScribePipeline:
         img_height = item['height']
         file_hash = item['file_hash']
 
+        quality_score = item.get('quality_score', 0)
+        quality_details = item.get('quality_details', {})
+
         # Initialize default values
         is_low_conf = False
         cn_name = "Unknown"
@@ -577,7 +580,9 @@ class WingScribePipeline:
                 'confidence_score': confidence,
                 'width': img_width,
                 'height': img_height,
-                'candidates_json': json.dumps(candidates_data, ensure_ascii=False)
+                'candidates_json': json.dumps(candidates_data, ensure_ascii=False),
+                'quality_score': quality_score,
+                'quality_details': quality_details,
             })
             
             log_name = cn_name if not is_low_conf else f"Uncertain ({top_result['scientific_name']})"
@@ -660,7 +665,12 @@ class WingScribePipeline:
                 )
 
                 if success:
-                    # 5. Blur detection (quality check)
+                    # 5. Quality scoring (7-dim weighted score)
+                    quality_result = QualityScorer().score_from_path(str(temp_crop_path), box)
+                    quality_score = quality_result["score"]
+                    quality_details = quality_result["details"]
+
+                    # 6. Blur detection (legacy quality check)
                     blur_threshold = self.config.get('processing', {}).get('blur_threshold', 40.0)
                     if blur_threshold > 0:
                         blur_score = QualityChecker.calculate_blur_score(str(temp_crop_path))
@@ -680,7 +690,9 @@ class WingScribePipeline:
                         'width': img_width,
                         'height': img_height,
                         'detection_index': i,
-                        'detections_count': len(detections)
+                        'detections_count': len(detections),
+                        'quality_score': quality_score,
+                        'quality_details': quality_details,
                     })
 
             self._recognize_batch(image_batch_items, candidates)

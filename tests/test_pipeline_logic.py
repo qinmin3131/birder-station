@@ -773,3 +773,48 @@ def test_archive_item_normalizes_processed_extension_to_jpg(tmp_path):
 
     assert (tmp_path / "out" / "test.jpg").exists()
     assert not (tmp_path / "out" / "test.ORF").exists()
+
+
+def test_archive_item_stores_quality_score_and_details(tmp_path):
+    """_archive_item 应将 quality_score 和 quality_details 存入数据库。"""
+    pipeline = MockPipeline()
+    pipeline.output_root = str(tmp_path / "out")
+    Path(pipeline.output_root).mkdir(parents=True, exist_ok=True)
+    pipeline.log_level = "info"
+    recorded = {}
+    pipeline.db = SimpleNamespace(
+        get_bird_info=lambda sci: {"chinese_name": "麻雀"},
+        add_photo_record=lambda record: recorded.update(record),
+    )
+    pipeline.exif_writer = SimpleNamespace(write_metadata=lambda path, meta: None)
+    pipeline.path_generator = type("FakePathGenerator", (), {
+        "generate_path": staticmethod(lambda meta, filename: str(tmp_path / "out" / filename))
+    })()
+
+    crop_path = tmp_path / "out" / "temp_test.jpg"
+    crop_path.parent.mkdir(parents=True, exist_ok=True)
+    Image.new("RGB", (10, 10), color="white").save(crop_path)
+
+    entry = SimpleNamespace(path="D:/照片/test.jpg", name="test.jpg")
+    item = {
+        "entry": entry,
+        "meta": {"captured_date": "20260320", "location_tag": "Beijing", "source_structure": "."},
+        "crop_path": str(crop_path),
+        "file_hash": "hash",
+        "width": 100,
+        "height": 100,
+        "detection_index": 0,
+        "detections_count": 1,
+        "quality_score": 73,
+        "quality_details": {"clarity": 0.8, "contrast": 0.6},
+    }
+
+    pipeline._archive_item(
+        item,
+        [{"scientific_name": "Passer montanus", "confidence": 0.95}],
+        alt_threshold=70,
+        low_conf_threshold=60,
+    )
+
+    assert recorded.get("quality_score") == 73
+    assert recorded.get("quality_details") == {"clarity": 0.8, "contrast": 0.6}
