@@ -284,6 +284,84 @@ def test_run_processes_valid_entries_and_records_scan_history(tmp_path, monkeypa
     assert history[0]["processed_count"] == 1
 
 
+def test_run_by_folders_uses_configured_raw_formats(tmp_path, monkeypatch):
+    """run_by_folders 应该处理 supported_formats 中配置的 RAW 格式。"""
+    source_root = tmp_path / "source"
+    target_folder = source_root / "trip"
+    target_folder.mkdir(parents=True)
+    orf_file = target_folder / "bird.orf"
+    jpg_file = target_folder / "bird.jpg"
+    txt_file = target_folder / "note.txt"
+    orf_file.write_bytes(b"fake orf")
+    jpg_file.write_bytes(b"j")
+    txt_file.write_text("x", encoding="utf-8")
+
+    pipeline = MockPipeline()
+    pipeline.config = {
+        "paths": {
+            "sources": [{"path": str(source_root), "enabled": True}],
+            "supported_formats": [".jpg", ".jpeg", ".orf"],
+        }
+    }
+    pipeline.source_dir = str(source_root)
+    pipeline.output_root = ""
+    pipeline.total_files = 0
+    pipeline.processed_count = 0
+    pipeline._progress_callback = None
+    pipeline.existing_hashes = None
+    processed = []
+    pipeline.process_image = lambda provider, entry, meta: processed.append(entry.name)
+    history = []
+    pipeline.db = SimpleNamespace(
+        get_all_hashes=lambda: {"old"},
+        add_scan_history=lambda record: history.append(record),
+    )
+    pipeline._scan_folder_recursive = lambda provider, folder_path: [
+        _make_entry(orf_file), _make_entry(jpg_file), _make_entry(txt_file)
+    ]
+
+    class FakeProvider:
+        def __init__(self, base_dir):
+            self.base_dir = base_dir
+
+        def exists(self, path):
+            return True
+
+        def list_dir(self, path, recursive=False):
+            return []
+
+    class FakeParser:
+        def __init__(self, source_root_abs, structure_pattern):
+            self.source_root_abs = source_root_abs
+
+        def parse(self, entry_path):
+            return {"captured_date": "20260322", "location_tag": "Trip"}
+
+    class ImmediateExecutor:
+        def __init__(self, max_workers):
+            self.max_workers = max_workers
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def submit(self, fn, *args, **kwargs):
+            fn(*args, **kwargs)
+            return SimpleNamespace(done=lambda: True)
+
+    monkeypatch.setattr("src.pipeline_runner.LocalProvider", FakeProvider)
+    monkeypatch.setattr("src.pipeline_runner.PathParser", FakeParser)
+    monkeypatch.setattr("src.pipeline_runner.ThreadPoolExecutor", ImmediateExecutor)
+    monkeypatch.setattr("src.pipeline_runner.wait", lambda futures, timeout=None: (list(futures), []))
+
+    pipeline.run_by_folders([str(target_folder)], recursive=True)
+
+    assert processed == ["bird.orf", "bird.jpg"]
+    assert history[0]["processed_count"] == 2
+
+
 def test_run_by_folders_uses_recursive_scanner_and_records_history(tmp_path, monkeypatch):
     source_root = tmp_path / "source"
     target_folder = source_root / "trip"

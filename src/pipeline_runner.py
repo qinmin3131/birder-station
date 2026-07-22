@@ -929,6 +929,8 @@ class WingScribePipeline:
                     iterator = provider.list_dir(path_str, recursive=False)
 
                 # 收集有效的图片文件
+                supported_formats = self.config.get('paths', {}).get('supported_formats', ['.jpg', '.jpeg'])
+                supported_suffixes = tuple(fmt.lower() for fmt in supported_formats)
                 valid_entries = []
                 for entry in iterator:
                     is_dir = entry.is_dir() if callable(entry.is_dir) else entry.is_dir
@@ -951,7 +953,7 @@ class WingScribePipeline:
                         except:
                             pass
 
-                    if not entry_name.lower().endswith(('.jpg', '.jpeg')):
+                    if not entry_name.lower().endswith(supported_suffixes):
                         continue
 
                     valid_entries.append((entry, entry_path))
