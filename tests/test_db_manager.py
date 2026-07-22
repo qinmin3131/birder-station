@@ -1,4 +1,5 @@
 import threading
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pandas as pd
@@ -89,6 +90,81 @@ def test_photo_paths_use_separate_source_and_processed_roots(tmp_path):
         assert mgr.resolve_original_path(row["original_path"]) == str(source_root / "trip" / "bird.jpg")
     finally:
         mgr.close()
+
+
+def test_group_photo_ids_groups_by_captured_at_time(db_manager):
+    base = datetime(2026, 7, 20, 10, 0, 0)
+    ids = []
+    for i in [0, 1, 2, 10, 11]:
+        photo_id = db_manager.add_photo_record({
+            "file_path": f"processed/p{i}.jpg",
+            "filename": f"p{i}.jpg",
+            "captured_date": "20260720",
+            "captured_at": base + timedelta(seconds=i),
+            "location_tag": "Park",
+            "primary_bird_cn": "麻雀",
+            "scientific_name": "Passer montanus",
+            "confidence_score": 0.99,
+            "width": 100,
+            "height": 100,
+        })
+        ids.append(photo_id)
+
+    grouped = db_manager.group_photo_ids(ids, time_window_seconds=5)
+    assert grouped == [[ids[0], ids[1], ids[2]], [ids[3], ids[4]]]
+
+
+def test_save_photo_groups_persists_group_and_updates_photos(db_manager):
+    base = datetime(2026, 7, 20, 10, 0, 0)
+    ids = []
+    for i in [0, 1, 10]:
+        photo_id = db_manager.add_photo_record({
+            "file_path": f"processed/p{i}.jpg",
+            "filename": f"p{i}.jpg",
+            "captured_date": "20260720",
+            "captured_at": base + timedelta(seconds=i),
+            "location_tag": "Park",
+            "primary_bird_cn": "麻雀",
+            "scientific_name": "Passer montanus",
+            "confidence_score": 0.99,
+            "width": 100,
+            "height": 100,
+        })
+        ids.append(photo_id)
+
+    group_ids = db_manager.save_photo_groups([[ids[0], ids[1]], [ids[2]]])
+    assert len(group_ids) == 2
+
+    rows = db_manager.conn.execute(
+        "SELECT id, group_id FROM photos WHERE id IN (?, ?, ?) ORDER BY id",
+        tuple(ids),
+    ).fetchall()
+    group_map = {row["id"]: row["group_id"] for row in rows}
+    assert group_map[ids[0]] == group_ids[0]
+    assert group_map[ids[1]] == group_ids[0]
+    assert group_map[ids[2]] == group_ids[1]
+
+
+def test_get_photos_without_group_returns_only_ungrouped(db_manager):
+    base = datetime(2026, 7, 20, 10, 0, 0)
+    ids = []
+    for i in [0, 1]:
+        photo_id = db_manager.add_photo_record({
+            "file_path": f"processed/p{i}.jpg",
+            "filename": f"p{i}.jpg",
+            "captured_date": "20260720",
+            "captured_at": base + timedelta(seconds=i),
+            "location_tag": "Park",
+            "primary_bird_cn": "麻雀",
+            "scientific_name": "Passer montanus",
+            "confidence_score": 0.99,
+            "width": 100,
+            "height": 100,
+        })
+        ids.append(photo_id)
+
+    db_manager.save_photo_groups([[ids[0]]])
+    assert db_manager.get_photos_without_group([ids[0], ids[1]]) == [ids[1]]
 
 
 @pytest.fixture

@@ -22,7 +22,7 @@ from src.core.processor import ImageProcessor
 from src.recognition.inference_local import LocalBirdRecognizer
 from src.recognition.inference_dongniao import DongniaoRecognizer
 from src.recognition.inference_api import APIBirdRecognizer
-from src.metadata.exif_writer import ExifWriter, write_metadata_for_photo
+from src.metadata.exif_writer import ExifWriter, write_metadata_for_photo, read_capture_datetime
 from src.utils.config_loader import load_config, validate_paths_config
 from src.utils.env_check import check_system_dependencies
 
@@ -212,6 +212,9 @@ class WingScribePipeline:
 
         # Existing hashes for fast deduplication (loaded on demand)
         self.existing_hashes = None
+
+        # Track photo IDs created during a run for post-processing (e.g. grouping)
+        self._new_photo_ids = []
 
         # Load taxonomy and config lists (with defaults for backward compatibility)
         paths_config = self.config.get('paths', {})
@@ -569,12 +572,14 @@ class WingScribePipeline:
             })
             
             # Store absolute paths for database
-            self.db.add_photo_record({
+            captured_at = read_capture_datetime(self.exif_writer, entry.path)
+            photo_id = self.db.add_photo_record({
                 'file_path': str(final_path),
                 'filename': Path(final_path).name,
                 'original_path': entry.path,
                 'file_hash': file_hash,
                 'captured_date': meta.get('captured_date'),
+                'captured_at': captured_at,
                 'location_tag': meta.get('location_tag'),
                 'primary_bird_cn': cn_name,
                 'scientific_name': sci_name,
@@ -585,6 +590,8 @@ class WingScribePipeline:
                 'quality_score': quality_score,
                 'quality_details': quality_details,
             })
+            if photo_id:
+                self._new_photo_ids.append(photo_id)
             
             # Write metadata to original file (JPEG embed, RAW sidecar)
             ext = Path(entry.path).suffix.lower()
@@ -877,6 +884,41 @@ class WingScribePipeline:
         else:
             logging.info(f"Pipeline completed. Processed: {processed_count}. Duration: {duration:.2f}s")
 
+        self._group_new_photos()
+
+    def _group_new_photos(self):
+        """Group newly archived photos by burst capture time window."""
+        if not getattr(self, "_new_photo_ids", None):
+            return
+
+        try:
+            group_config = self.config.get("grouper", {})
+            if not group_config.get("enabled", True):
+                return
+
+            time_window = group_config.get("time_window", 5)
+            photo_ids = list(self._new_photo_ids)
+            self._new_photo_ids = []
+
+            # Only group photos that haven't been assigned already
+            ungrouped_ids = self.db.get_photos_without_group(photo_ids)
+            if not ungrouped_ids:
+                return
+
+            grouped = self.db.group_photo_ids(ungrouped_ids, time_window_seconds=time_window)
+            if not grouped:
+                return
+
+            # Filter out single-photo groups (no need to create a group for one image)
+            multi_groups = [g for g in grouped if len(g) > 1]
+            if not multi_groups:
+                return
+
+            self.db.save_photo_groups(multi_groups)
+            logging.info(f"Created {len(multi_groups)} burst groups from {len(ungrouped_ids)} new photos")
+        except Exception as e:
+            logging.error(f"Failed to group new photos: {e}")
+
     def run_by_folders(self, folder_paths: list, recursive: bool = True):
         """
         Run pipeline for specific folders only, ignoring date range filters.
@@ -1043,6 +1085,8 @@ class WingScribePipeline:
             logging.info(f"Pipeline (by folders) stopped by request. Processed: {processed_count}. Duration: {duration:.2f}s")
         else:
             logging.info(f"Pipeline (by folders) completed. Processed: {processed_count}. Duration: {duration:.2f}s")
+
+        self._group_new_photos()
 
     def _scan_folder_recursive(self, provider, folder_path: str):
         """

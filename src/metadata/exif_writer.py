@@ -6,8 +6,22 @@ import os
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import List, Dict, Any, Optional
+from datetime import datetime
 
-RAW_EXTS = {".nef", ".orf", ".cr2", ".cr3", ".arw", ".dng", ".rw2"}
+RAW_EXTS = {".nef", ".orf", ".cr2", ".cr3", ".arw", ".dng", ".rw2", ".pef", ".raf"}
+
+
+def _parse_exif_datetime(value: Any) -> Optional[datetime]:
+    """Parse common EXIF datetime strings into a datetime object."""
+    if not value:
+        return None
+    text = str(value).strip()
+    for fmt in ("%Y:%m:%d %H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y/%m/%d %H:%M:%S"):
+        try:
+            return datetime.strptime(text, fmt)
+        except ValueError:
+            continue
+    return None
 
 
 class ExifWriter:
@@ -207,6 +221,56 @@ class ExifWriter:
                     os.remove(arg_file)
                 except:
                     pass
+
+
+def read_capture_datetime(exif_writer: ExifWriter, image_path: str) -> Optional[datetime]:
+    """Read the original capture datetime from image EXIF metadata.
+
+    Tries ExifTool first (handles RAW and JPEG), then falls back to PIL for
+    standard JPEG EXIF. Returns None if no datetime can be determined.
+    """
+    if not image_path or not os.path.exists(image_path):
+        return None
+
+    exiftool_cmd = exif_writer._resolve_exiftool()
+    if exiftool_cmd:
+        try:
+            cmd = [
+                exiftool_cmd,
+                "-DateTimeOriginal",
+                "-CreateDate",
+                "-DateTimeDigitized",
+                "-s3",
+                "-d", "%Y-%m-%d %H:%M:%S",
+                image_path,
+            ]
+            result = subprocess.run(
+                cmd, capture_output=True, text=True, check=False, timeout=30
+            )
+            for line in result.stdout.splitlines():
+                parsed = _parse_exif_datetime(line)
+                if parsed:
+                    return parsed
+        except Exception as e:
+            logging.debug(f"ExifTool datetime read failed for {image_path}: {e}")
+
+    # Fallback to PIL for JPEG/PNG
+    try:
+        from PIL import Image
+        from PIL.ExifTags import TAGS
+
+        with Image.open(image_path) as img:
+            exif = img._getexif() or {}
+            for tag_id, value in exif.items():
+                tag_name = TAGS.get(tag_id, tag_id)
+                if tag_name in ("DateTimeOriginal", "DateTimeDigitized", "DateTime"):
+                    parsed = _parse_exif_datetime(value)
+                    if parsed:
+                        return parsed
+    except Exception as e:
+        logging.debug(f"PIL datetime read failed for {image_path}: {e}")
+
+    return None
 
 
 def quality_score_to_rating(score: Optional[int]) -> int:

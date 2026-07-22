@@ -24,7 +24,7 @@ from src.metadata.exif_writer import ExifWriter, write_metadata_for_photo
 from src.utils.config_loader import load_config, validate_paths_config
 from src.core.io.path_generator import PathGenerator
 from src.core.indexer import PhotoIndexer
-from src.db.models import init_database as init_sqlalchemy_db, Photo, Species
+from src.db.models import init_database as init_sqlalchemy_db, Photo, Species, PhotoGroup
 from src.db.repository import PhotoRepository
 from src.web.routes.recognition import router as recognition_router
 from src.web import task_manager as task_manager_module
@@ -730,7 +730,7 @@ class SelectMarkRequest(BaseModel):
 
 @app.get("/select", response_class=HTMLResponse)
 def select_page(request: Request, date: str = ""):
-    """选片工作台：按日期简单分组展示照片，支持标记选中/淘汰。"""
+    """选片工作台：按连拍分组优先展示，未分组照片按日期展示。"""
     session = get_sqlalchemy_session()
     try:
         query = session.query(Photo)
@@ -738,40 +738,123 @@ def select_page(request: Request, date: str = ""):
             query = query.filter(Photo.captured_date == date)
         photos = query.order_by(Photo.captured_date.desc(), Photo.id.desc()).limit(500).all()
 
-        # Simple grouping by captured_date
-        groups_map = {}
+        # Separate grouped and ungrouped photos
+        grouped: dict[int, list[Photo]] = {}
+        ungrouped: dict[str, list[Photo]] = {}
         for p in photos:
-            key = p.captured_date or "未知日期"
-            groups_map.setdefault(key, []).append(p)
+            if p.group_id:
+                grouped.setdefault(p.group_id, []).append(p)
+            else:
+                key = p.captured_date or "未知日期"
+                ungrouped.setdefault(key, []).append(p)
 
         display_groups = []
-        group_id = 1
-        for key in sorted(groups_map.keys(), reverse=True):
-            group_photos = []
-            for p in groups_map[key]:
-                group_photos.append({
-                    "id": p.id,
-                    "primary_bird_cn": p.primary_bird_cn,
-                    "scientific_name": p.scientific_name,
-                    "location_tag": p.location_tag,
-                    "captured_date": p.captured_date,
-                    "quality_score": p.quality_score or 0,
-                    "is_selected": p.is_selected or False,
-                    "is_rejected": p.rating == -1,
-                    "web_processed_path": resolve_processed_web_path(p.file_path) if p.file_path else None,
-                    "web_raw_path": resolve_web_path(p.original_path) if p.original_path else None,
-                })
+        gid = 1
+
+        # Render burst groups first, ordered by best photo (highest quality first)
+        group_ids = sorted(grouped.keys())
+        for group_id in group_ids:
+            group_photos = grouped[group_id]
+            best = max(group_photos, key=lambda p: (p.quality_score or 0, p.id))
+            members = sorted(group_photos, key=lambda p: (p.captured_at or p.id, p.id))
             display_groups.append({
-                "id": group_id,
-                "date": key,
-                "photos": group_photos,
+                "id": gid,
+                "type": "burst",
+                "group_id": group_id,
+                "date": best.captured_date or "未知日期",
+                "best_photo_id": best.id,
+                "photo_count": len(members),
+                "primary_bird_cn": best.primary_bird_cn,
+                "scientific_name": best.scientific_name,
+                "quality_score": best.quality_score or 0,
+                "is_selected": best.is_selected or False,
+                "is_rejected": best.rating == -1,
+                "web_processed_path": resolve_processed_web_path(best.file_path) if best.file_path else None,
+                "web_raw_path": resolve_web_path(best.original_path) if best.original_path else None,
+                "photos": [
+                    {
+                        "id": p.id,
+                        "primary_bird_cn": p.primary_bird_cn,
+                        "scientific_name": p.scientific_name,
+                        "location_tag": p.location_tag,
+                        "captured_date": p.captured_date,
+                        "quality_score": p.quality_score or 0,
+                        "is_selected": p.is_selected or False,
+                        "is_rejected": p.rating == -1,
+                        "web_processed_path": resolve_processed_web_path(p.file_path) if p.file_path else None,
+                        "web_raw_path": resolve_web_path(p.original_path) if p.original_path else None,
+                    }
+                    for p in members
+                ],
             })
-            group_id += 1
+            gid += 1
+
+        # Render ungrouped photos by captured_date (one group per date)
+        for key in sorted(ungrouped.keys(), reverse=True):
+            group_photos = ungrouped[key]
+            display_groups.append({
+                "id": gid,
+                "type": "single",
+                "date": key,
+                "photo_count": len(group_photos),
+                "primary_bird_cn": group_photos[0].primary_bird_cn,
+                "scientific_name": group_photos[0].scientific_name,
+                "quality_score": group_photos[0].quality_score or 0,
+                "is_selected": group_photos[0].is_selected or False,
+                "is_rejected": group_photos[0].rating == -1,
+                "web_processed_path": resolve_processed_web_path(group_photos[0].file_path) if group_photos[0].file_path else None,
+                "web_raw_path": resolve_web_path(group_photos[0].original_path) if group_photos[0].original_path else None,
+                "photos": [
+                    {
+                        "id": p.id,
+                        "primary_bird_cn": p.primary_bird_cn,
+                        "scientific_name": p.scientific_name,
+                        "location_tag": p.location_tag,
+                        "captured_date": p.captured_date,
+                        "quality_score": p.quality_score or 0,
+                        "is_selected": p.is_selected or False,
+                        "is_rejected": p.rating == -1,
+                        "web_processed_path": resolve_processed_web_path(p.file_path) if p.file_path else None,
+                        "web_raw_path": resolve_web_path(p.original_path) if p.original_path else None,
+                    }
+                    for p in group_photos
+                ],
+            })
+            gid += 1
 
         return templates.TemplateResponse(
             "select.html",
             {"request": request, "groups": display_groups, "current_date": date},
         )
+    finally:
+        session.close()
+
+
+@app.post("/api/select/pick-best/{group_id}")
+def select_pick_best(group_id: int):
+    """在连拍分组中自动选出最佳照片（画质最高）。"""
+    session = get_sqlalchemy_session()
+    try:
+        photos = session.query(Photo).filter(Photo.group_id == group_id).all()
+        if not photos:
+            raise HTTPException(status_code=404, detail="Group not found or empty")
+        best = max(photos, key=lambda p: (p.quality_score or 0, p.id))
+        best.is_selected = True
+        best.rating = max(best.rating or 0, 1)
+        session.commit()
+        return {
+            "status": "success",
+            "photo": {
+                "id": best.id,
+                "primary_bird_cn": best.primary_bird_cn,
+                "quality_score": best.quality_score or 0,
+            },
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to pick best for group {group_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
         session.close()
 

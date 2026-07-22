@@ -7,6 +7,7 @@ import threading
 from contextlib import contextmanager
 from pathlib import Path
 from typing import List, Dict, Optional
+from datetime import datetime
 
 class IOCManager:
     def __init__(
@@ -152,6 +153,21 @@ class IOCManager:
             try: self.conn.execute("ALTER TABLE photos ADD COLUMN candidates_json TEXT")
             except: pass
 
+        # Migration - Add feature columns (grouping, quality, selection)
+        for col_name, col_type in [
+            ("captured_at", "DATETIME"),
+            ("is_selected", "INTEGER DEFAULT 0"),
+            ("rating", "INTEGER"),
+            ("quality_score", "INTEGER"),
+            ("quality_details", "TEXT"),
+            ("created_at", "DATETIME DEFAULT CURRENT_TIMESTAMP"),
+            ("group_id", "INTEGER"),
+        ]:
+            try:
+                self.conn.execute(f"ALTER TABLE photos ADD COLUMN {col_name} {col_type}")
+            except sqlite3.OperationalError:
+                pass
+
         # Migration - Add web path columns
         try:
             self.conn.execute("SELECT web_processed_path, web_raw_path FROM photos LIMIT 1")
@@ -192,6 +208,20 @@ class IOCManager:
         try: self.conn.execute("CREATE INDEX IF NOT EXISTS idx_photos_sci_name ON photos(scientific_name)")
         except: pass
         try: self.conn.execute("CREATE INDEX IF NOT EXISTS idx_photos_date ON photos(captured_date)")
+        except: pass
+        try: self.conn.execute("CREATE INDEX IF NOT EXISTS idx_photos_captured_at ON photos(captured_at)")
+        except: pass
+
+        # Photo Groups Table (burst grouping)
+        self.conn.execute('''
+            CREATE TABLE IF NOT EXISTS photo_groups (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                outing_id INTEGER,
+                best_photo_id INTEGER,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        try: self.conn.execute("CREATE INDEX IF NOT EXISTS idx_photo_groups_outing ON photo_groups(outing_id)")
         except: pass
 
         # Species Stats Table (for fast taxonomy tree queries)
@@ -1005,6 +1035,112 @@ class IOCManager:
                 result.append(order)
 
         return result
+
+    def group_photo_ids(self, photo_ids: List[int], time_window_seconds: int = 5) -> List[List[int]]:
+        """Group photo IDs by captured_at time into burst sequences.
+
+        Consecutive photos whose captured_at differ by no more than
+        ``time_window_seconds`` are placed in the same group. Photos without
+        captured_at are treated as single-photo groups.
+        """
+        if not photo_ids:
+            return []
+
+        placeholders = ', '.join('?' * len(photo_ids))
+        sql = f"""
+            SELECT id, captured_at FROM photos
+            WHERE id IN ({placeholders})
+            ORDER BY captured_at ASC, id ASC
+        """
+        with self._operation_connection() as conn:
+            cursor = conn.execute(sql, tuple(photo_ids))
+            rows = cursor.fetchall()
+
+        groups: List[List[int]] = []
+        current_group: List[int] = []
+        last_captured_at: Optional[datetime] = None
+
+        for row in rows:
+            photo_id = row['id']
+            captured_at_raw = row['captured_at']
+            captured_at: Optional[datetime] = None
+            if captured_at_raw:
+                if isinstance(captured_at_raw, datetime):
+                    captured_at = captured_at_raw
+                else:
+                    try:
+                        captured_at = datetime.fromisoformat(str(captured_at_raw))
+                    except ValueError:
+                        captured_at = None
+
+            if captured_at is None or last_captured_at is None:
+                if current_group:
+                    groups.append(current_group)
+                current_group = [photo_id]
+                last_captured_at = captured_at
+                continue
+
+            delta = (captured_at - last_captured_at).total_seconds()
+            if delta <= time_window_seconds:
+                current_group.append(photo_id)
+                last_captured_at = captured_at
+            else:
+                groups.append(current_group)
+                current_group = [photo_id]
+                last_captured_at = captured_at
+
+        if current_group:
+            groups.append(current_group)
+
+        return groups
+
+    def save_photo_groups(self, grouped_ids: List[List[int]], outing_id: Optional[int] = None) -> List[int]:
+        """Persist photo groups and update each photo's group_id.
+
+        Returns list of created group IDs.
+        """
+        if not grouped_ids:
+            return []
+
+        group_ids: List[int] = []
+        with self._operation_connection(write=True) as conn:
+            for group in grouped_ids:
+                if not group:
+                    continue
+                best_photo_id = group[0]
+                cursor = conn.execute(
+                    "INSERT INTO photo_groups (outing_id, best_photo_id) VALUES (?, ?)",
+                    (outing_id, best_photo_id),
+                )
+                group_id = cursor.lastrowid
+                group_ids.append(group_id)
+                conn.executemany(
+                    "UPDATE photos SET group_id = ? WHERE id = ?",
+                    [(group_id, photo_id) for photo_id in group],
+                )
+
+        return group_ids
+
+    def get_photos_without_group(self, photo_ids: List[int] = None) -> List[int]:
+        """Return IDs of photos that have not been assigned to a group yet.
+
+        If ``photo_ids`` is provided, only consider those IDs; otherwise all photos.
+        """
+        if photo_ids is None:
+            with self._operation_connection() as conn:
+                cursor = conn.execute(
+                    "SELECT id FROM photos WHERE group_id IS NULL"
+                )
+                return [row['id'] for row in cursor.fetchall()]
+
+        if not photo_ids:
+            return []
+
+        placeholders = ', '.join('?' * len(photo_ids))
+        sql = f"SELECT id FROM photos WHERE id IN ({placeholders}) AND group_id IS NULL"
+        with self._operation_connection() as conn:
+            cursor = conn.execute(sql, tuple(photo_ids))
+            return [row['id'] for row in cursor.fetchall()]
 
     def close(self):
         self.conn.close()

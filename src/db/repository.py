@@ -34,6 +34,12 @@ class PhotoRepository:
             photo.confidence_score = 1.0
             self.session.commit()
 
+    def add_group(self, group: PhotoGroup) -> PhotoGroup:
+        self.session.add(group)
+        self.session.commit()
+        self.session.refresh(group)
+        return group
+
 
 class SpeciesRepository:
     def __init__(self, session: Session):

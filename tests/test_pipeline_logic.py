@@ -794,6 +794,7 @@ def test_archive_item_stores_quality_score_and_details(tmp_path, monkeypatch):
 
     # Avoid side effects from writing metadata to original source
     monkeypatch.setattr("src.pipeline_runner.write_metadata_for_photo", lambda *args, **kwargs: True)
+    monkeypatch.setattr("src.pipeline_runner.read_capture_datetime", lambda *args, **kwargs: None)
 
     crop_path = tmp_path / "out" / "temp_test.jpg"
     crop_path.parent.mkdir(parents=True, exist_ok=True)
@@ -822,3 +823,66 @@ def test_archive_item_stores_quality_score_and_details(tmp_path, monkeypatch):
 
     assert recorded.get("quality_score") == 73
     assert recorded.get("quality_details") == {"clarity": 0.8, "contrast": 0.6}
+
+
+def test_group_new_photos_groups_recent_photo_ids(monkeypatch):
+    """Pipeline 归档后应自动对新增照片执行连拍分组。"""
+    pipeline = MockPipeline()
+    pipeline.config = {"grouper": {"enabled": True, "time_window": 5}}
+
+    grouped_calls = []
+    saved_calls = []
+    pipeline.db = SimpleNamespace(
+        get_photos_without_group=lambda ids: ids,
+        group_photo_ids=lambda ids, time_window_seconds: grouped_calls.append((list(ids), time_window_seconds)) or [[1, 2], [3, 4]],
+        save_photo_groups=lambda groups, outing_id=None: saved_calls.append((list(groups), outing_id)) or [10, 11],
+    )
+
+    pipeline._new_photo_ids = [1, 2, 3, 4]
+    pipeline._group_new_photos()
+
+    assert grouped_calls == [([1, 2, 3, 4], 5)]
+    # Single-photo groups are not persisted; only multi-photo groups are saved
+    assert saved_calls == [([[1, 2], [3, 4]], None)]
+    assert pipeline._new_photo_ids == []
+
+
+def test_group_new_photos_skips_when_disabled():
+    """当分组功能禁用时，不应执行分组。"""
+    pipeline = MockPipeline()
+    pipeline.config = {"grouper": {"enabled": False, "time_window": 5}}
+    pipeline.db = SimpleNamespace(
+        get_photos_without_group=lambda ids: None,
+        group_photo_ids=lambda ids, time_window_seconds: None,
+        save_photo_groups=lambda groups, outing_id=None: None,
+    )
+    pipeline._new_photo_ids = [1, 2]
+    pipeline._group_new_photos()
+    assert pipeline._new_photo_ids == [1, 2]
+
+
+def test_group_new_photos_swallows_errors():
+    """分组失败不应导致整个 pipeline 崩溃。"""
+    pipeline = MockPipeline()
+    pipeline.config = {"grouper": {"enabled": True, "time_window": 5}}
+    pipeline.db = SimpleNamespace(
+        get_photos_without_group=lambda ids: (_ for _ in ()).throw(RuntimeError("boom")),
+    )
+    pipeline._new_photo_ids = [1, 2]
+    # Should not raise
+    pipeline._group_new_photos()
+
+
+def test_group_new_photos_only_saves_multi_photo_groups():
+    """单张照片不应创建连拍组。"""
+    pipeline = MockPipeline()
+    pipeline.config = {"grouper": {"enabled": True, "time_window": 5}}
+    saved = []
+    pipeline.db = SimpleNamespace(
+        get_photos_without_group=lambda ids: ids,
+        group_photo_ids=lambda ids, time_window_seconds: [[1], [2, 3]],
+        save_photo_groups=lambda groups, outing_id=None: saved.append(list(groups)) or [10],
+    )
+    pipeline._new_photo_ids = [1, 2, 3]
+    pipeline._group_new_photos()
+    assert saved == [[[2, 3]]]

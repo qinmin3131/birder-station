@@ -77,23 +77,50 @@
    - 完整测试套件：315 passed, 1 skipped
    - 提交 `TBD`：功能: 完善元数据写入并接入 pipeline 与 Web
 
+7. **连拍分组实现**
+   - 数据模型：
+     - `src/db/models.py` 在 `Photo` 表添加 `group_id` 外键
+     - `src/db/repository.py` 添加 `PhotoRepository.add_group()` 方法（兼容 SQLAlchemy 路径）
+   - 数据库层：
+     - `src/metadata/ioc_manager.py` 创建 `photo_groups` 表并迁移 `group_id`/`captured_at`/`is_selected`/`rating`/`quality_score`/`quality_details`/`created_at` 列
+     - 添加 `idx_photos_captured_at` 索引
+     - 实现 `group_photo_ids()` 按 captured_at 时间窗口（默认 5s）分组
+     - 实现 `save_photo_groups()` 保存分组并回写 `photos.group_id`
+     - 实现 `get_photos_without_group()` 避免重复分组
+   - Pipeline 接入：
+     - `src/metadata/exif_writer.py` 新增 `read_capture_datetime()`，先 ExifTool 后 PIL 读取原始拍摄时间
+     - `src/pipeline_runner.py` 新增 `self._new_photo_ids` 跟踪本次归档的照片
+     - `_archive_item()` 调用 `read_capture_datetime()` 并将 `captured_at` 写入数据库，收集 `photo_id`
+     - `run()` 和 `run_by_folders()` 结束时调用 `_group_new_photos()`
+     - `_group_new_photos()` 按 `grouper.time_window` 配置分组，仅保存多照片组，错误不中断流程
+   - Web 选片页：
+     - `src/web/app.py` 的 `/select` 优先按 `photo_groups` 展示连拍组，未分组照片按日期聚合
+     - 新增 `/api/select/pick-best/{group_id}` 在连拍组中一键选最佳
+     - 重写 `src/web/templates/select.html` 支持连拍组折叠/展开和单张照片组展示
+   - 测试：
+     - `tests/test_db_manager.py` 新增 `group_photo_ids`、`save_photo_groups`、`get_photos_without_group` 测试
+     - `tests/test_pipeline_logic.py` 新增 `_group_new_photos` 分组、禁用、异常、过滤单张组测试
+     - 完整测试套件：322 passed, 1 skipped
+   - 提交 `TBD`：功能: 实现连拍分组并在选片页优先展示
+
 ### 待处理
 - [ ] 与 `spec.md` 对齐：当前 spec 中是否有三域 Web 的详细设计需要确认
 - [x] 将 QualityScorer 集成进 pipeline_runner
 - [x] 实现三域 Web 路由 `/select`、`/gallery`、`/guide`
 - [x] 完善元数据写入并接入 pipeline 与 Web
-- [ ] 实现真正的连拍分组（基于 EXIF 时间窗口）
-- [ ] 在选片工作台应用连拍分组
+- [x] 实现真正的连拍分组（基于 EXIF 时间窗口）
+- [x] 在选片工作台应用连拍分组
 - [ ] 实现选片大图复核界面（检测框/AF点/质量分项）
 - [x] 决定飞版判断策略：暂时保留当前自动飞版逻辑，后续调整
 
 ### 文件变更（本次未提交）
+- `src/db/models.py`
+- `src/db/repository.py`
+- `src/metadata/ioc_manager.py`
 - `src/metadata/exif_writer.py`
 - `src/pipeline_runner.py`
 - `src/web/app.py`
 - `src/web/templates/select.html`
-- `src/web/templates/gallery.html`
-- `tests/test_exif_writer.py`
+- `tests/test_db_manager.py`
 - `tests/test_pipeline_logic.py`
-- `tests/test_web_three_domain.py`
 - `.context/worklog.md`（本文件）

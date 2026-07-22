@@ -68,8 +68,17 @@
 
         {% for group in groups %}
         <div class="group-header d-flex justify-content-between align-items-center">
-            <span>📦 连拍组 #{{ group.id }} · {{ group.date }} · {{ group.photos|length }} 张</span>
-            <button class="btn btn-sm btn-outline-primary" onclick="pickBest({{ group.id }})">选最佳</button>
+            <span>
+                {% if group.type == 'burst' %}📦 连拍组{% else %}🖼️ 照片{% endif %} #{{ group.id }}
+                · {{ group.date }}
+                · {{ group.photo_count }} 张
+                {% if group.type == 'burst' %}
+                <span class="badge bg-info text-white ms-1">连拍</span>
+                {% endif %}
+            </span>
+            {% if group.type == 'burst' %}
+            <button class="btn btn-sm btn-outline-primary" onclick="pickBest({{ group.group_id }})">选最佳</button>
+            {% endif %}
         </div>
 
         <div class="photo-grid mb-4">
@@ -78,8 +87,8 @@
             {% set raw_path = photo.web_raw_path if photo.web_raw_path else '' %}
             <div class="photo-card" id="photo-card-{{ photo.id }}">
                 <div class="card h-100 shadow-sm {{ 'selected-card' if photo.is_selected else '' }} {{ 'rejected-card' if photo.is_rejected else '' }}"
-                         data-id="{{ photo.id }}"
-                         data-score="{{ photo.quality_score|default(0) }}">
+                     data-id="{{ photo.id }}"
+                     data-score="{{ photo.quality_score|default(0) }}">
                     <div class="position-relative">
                         <div class="btn-group btn-group-sm position-absolute top-0 start-0 m-1" style="z-index: 10;">
                             {% if processed_path %}<a href="{{ processed_path }}" download class="btn btn-dark btn-sm">裁切</a>{% endif %}
@@ -127,7 +136,17 @@
         }
 
         function pickBest(groupId) {
-            alert('选最佳功能：待后端按组内最高分自动标记');
+            fetch(`/api/select/pick-best/${groupId}`, { method: 'POST' })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        alert(`已选中最佳照片：${data.photo.primary_bird_cn} (${data.photo.quality_score}分)`);
+                        markPhoto(data.photo.id, 'select');
+                    } else {
+                        throw new Error(data.detail || 'unknown error');
+                    }
+                })
+                .catch(e => console.error(e));
         }
 
         function batchAction(action) {
@@ -136,7 +155,9 @@
                 const id = card.dataset.id;
                 const score = parseFloat(card.dataset.score) || 0;
                 if (action === 'select' && score >= 80) markPhoto(id, 'select');
-            if (action === 'reject' && score < 50) markPhoto(id, 'reject');
+                if (action === 'keep' && score >= 50 && !card.classList.contains('selected-card')) markPhoto(id, 'select');
+                if (action === 'reject' && score < 50) markPhoto(id, 'reject');
+            });
         }
 
         function writeMetadata(id) {
@@ -158,8 +179,6 @@
                     btn.classList.add('btn-danger');
                     btn.textContent = '❌ 失败';
                 });
-        }
-    </script>});
         }
     </script>
 </body>

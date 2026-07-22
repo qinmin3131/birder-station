@@ -73,6 +73,7 @@ class Photo(Base):
     quality_score = Column(Integer)
     quality_details = Column(JSON)
     created_at = Column(DateTime, default=datetime.utcnow)
+    group_id = Column(Integer, ForeignKey("photo_groups.id"))
 
 
 class PhotoGroup(Base):
