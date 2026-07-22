@@ -4,6 +4,7 @@ import shutil
 import threading
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from PIL import Image
 
@@ -775,7 +776,7 @@ def test_archive_item_normalizes_processed_extension_to_jpg(tmp_path):
     assert not (tmp_path / "out" / "test.ORF").exists()
 
 
-def test_archive_item_stores_quality_score_and_details(tmp_path):
+def test_archive_item_stores_quality_score_and_details(tmp_path, monkeypatch):
     """_archive_item 应将 quality_score 和 quality_details 存入数据库。"""
     pipeline = MockPipeline()
     pipeline.output_root = str(tmp_path / "out")
@@ -790,6 +791,9 @@ def test_archive_item_stores_quality_score_and_details(tmp_path):
     pipeline.path_generator = type("FakePathGenerator", (), {
         "generate_path": staticmethod(lambda meta, filename: str(tmp_path / "out" / filename))
     })()
+
+    # Avoid side effects from writing metadata to original source
+    monkeypatch.setattr("src.pipeline_runner.write_metadata_for_photo", lambda *args, **kwargs: True)
 
     crop_path = tmp_path / "out" / "temp_test.jpg"
     crop_path.parent.mkdir(parents=True, exist_ok=True)

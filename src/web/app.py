@@ -20,7 +20,7 @@ from typing import Optional, List
 BASE_DIR = Path(__file__).parent.parent.parent.absolute()
 sys.path.append(str(BASE_DIR))
 
-from src.metadata.exif_writer import ExifWriter
+from src.metadata.exif_writer import ExifWriter, write_metadata_for_photo
 from src.utils.config_loader import load_config, validate_paths_config
 from src.core.io.path_generator import PathGenerator
 from src.core.indexer import PhotoIndexer
@@ -67,6 +67,9 @@ app = FastAPI(lifespan=lifespan)
 
 # Load config
 config = load_config(str(BASE_DIR / "config" / "settings.yaml"), str(BASE_DIR / "config" / "secrets.yaml"))
+
+# Initialize metadata writer
+exif_writer = ExifWriter()
 
 # Validate paths configuration
 is_valid, errors = validate_paths_config(config)
@@ -798,6 +801,62 @@ def select_mark(req: SelectMarkRequest):
         raise
     except Exception as e:
         logger.error(f"Failed to mark photo {req.photo_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        session.close()
+
+
+@app.post("/api/photo/{photo_id}/write_metadata")
+def write_photo_metadata(photo_id: int):
+    """Write EXIF/XMP metadata for a single photo back to its original file."""
+    session = get_sqlalchemy_session()
+    try:
+        photo = session.query(Photo).filter(Photo.id == photo_id).first()
+        if not photo:
+            raise HTTPException(status_code=404, detail="Photo not found")
+
+        write_mode = config.get("metadata", {}).get("write_mode", "xmp_sidecar")
+        ok = write_metadata_for_photo(photo, exif_writer, write_mode=write_mode)
+        if not ok:
+            raise HTTPException(status_code=500, detail="Failed to write metadata")
+        return {"status": "success", "photo_id": photo_id, "write_mode": write_mode}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to write metadata for photo {photo_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        session.close()
+
+
+@app.post("/api/gallery/write_metadata")
+def write_gallery_metadata(filter: str = "", date: str = ""):
+    """Batch write metadata for selected/filtered photos."""
+    session = get_sqlalchemy_session()
+    try:
+        query = session.query(Photo).filter(Photo.is_selected == True)
+        if filter == "selected":
+            query = query.filter(Photo.is_selected == True)
+        elif filter == "current":
+            query = query.filter(Photo.captured_date == date)
+        photos = query.all()
+
+        write_mode = config.get("metadata", {}).get("write_mode", "xmp_sidecar")
+        results = []
+        for photo in photos:
+            ok = write_metadata_for_photo(photo, exif_writer, write_mode=write_mode)
+            results.append({"photo_id": photo.id, "success": ok})
+
+        success_count = sum(1 for r in results if r["success"])
+        return {
+            "status": "success",
+            "write_mode": write_mode,
+            "total": len(results),
+            "success_count": success_count,
+            "results": results,
+        }
+    except Exception as e:
+        logger.error(f"Failed to batch write metadata: {e}")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         session.close()

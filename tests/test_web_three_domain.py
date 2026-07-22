@@ -1,5 +1,6 @@
 from pathlib import Path
-from unittest.mock import ANY
+from types import SimpleNamespace
+from unittest.mock import ANY, patch
 
 import pytest
 from sqlalchemy import create_engine
@@ -7,6 +8,13 @@ from sqlalchemy.orm import sessionmaker
 
 from src.db.models import Base, Photo, Species
 from src.web import app as web_app
+
+
+def _mock_metadata_writer(monkeypatch):
+    def fake_write_metadata_for_photo(photo, writer, write_mode):
+        return True
+
+    monkeypatch.setattr(web_app, "write_metadata_for_photo", fake_write_metadata_for_photo)
 
 
 class TemplateRecorder:
@@ -179,3 +187,45 @@ def test_guide_page_groups_species_by_family(tmp_path, monkeypatch):
     assert families[0]["family_cn"] == "雀科"
     assert len(families[0]["species"]) == 2
     assert families[1]["family_cn"] == "鸦科"
+
+
+def test_write_photo_metadata_api(tmp_path, monkeypatch):
+    db_path = _create_temp_db(tmp_path)
+    monkeypatch.setattr(web_app, "db_path", Path(db_path))
+    session, _ = _create_session(db_path)
+    session.add(Photo(
+        file_path="a.jpg",
+        filename="a.jpg",
+        original_path="a.jpg",
+        primary_bird_cn="麻雀",
+        scientific_name="Passer montanus",
+        quality_score=85,
+        is_selected=True,
+    ))
+    session.commit()
+    photo_id = session.query(Photo).first().id
+    session.close()
+
+    _mock_metadata_writer(monkeypatch)
+
+    result = web_app.write_photo_metadata(photo_id=photo_id)
+    assert result["status"] == "success"
+    assert result["photo_id"] == photo_id
+
+
+def test_write_gallery_metadata_api(tmp_path, monkeypatch):
+    db_path = _create_temp_db(tmp_path)
+    monkeypatch.setattr(web_app, "db_path", Path(db_path))
+    session, _ = _create_session(db_path)
+    session.add(Photo(file_path="a.jpg", filename="a.jpg", original_path="a.jpg", is_selected=True, quality_score=90))
+    session.add(Photo(file_path="b.jpg", filename="b.jpg", original_path="b.jpg", is_selected=False, quality_score=60))
+    session.add(Photo(file_path="c.jpg", filename="c.jpg", original_path="c.jpg", is_selected=True, quality_score=75))
+    session.commit()
+    session.close()
+
+    _mock_metadata_writer(monkeypatch)
+
+    result = web_app.write_gallery_metadata(filter="selected")
+    assert result["status"] == "success"
+    assert result["total"] == 2
+    assert result["success_count"] == 2

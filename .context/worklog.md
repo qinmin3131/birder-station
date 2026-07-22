@@ -60,18 +60,40 @@
      - `src/web/templates/guide.html`
    - 新增测试：`tests/test_web_three_domain.py`（7 个用例全部通过）
    - 完整测试套件：308 passed, 1 skipped
-   - 提交 `TBD`：功能: 实现三域 Web 路由 /select /gallery /guide
+   - 提交 `1f366b9`：功能: 实现三域 Web 路由 /select /gallery /guide
+
+6. **元数据写入模块完善与接入**
+   - `src/metadata/exif_writer.py` 新增：
+     - `quality_score_to_rating()`：0-100 分映射到 Lightroom 0-5 星级
+     - `build_exif_tags_from_photo()`：生成 `ImageDescription`、`XMP:Title`、`XMP:Description`、`IPTC:Keywords`、`XMP:Subject`、`XMP:Pick`、`XMP:Rating`
+     - `write_metadata_for_photo()`：JPEG 直接嵌入，RAW 自动生成 XMP sidecar
+   - `src/pipeline_runner.py` 归档后自动对原始文件写入元数据（JPEG 嵌入 / RAW sidecar）
+   - `src/web/app.py` 新增 API：
+     - `/api/photo/{photo_id}/write_metadata` 单张写入
+     - `/api/gallery/write_metadata` 批量写入已选中照片
+   - `src/web/templates/select.html` 和 `gallery.html` 添加“写入元数据”按钮
+   - 新增测试：`tests/test_exif_writer.py` 中 `TestPhotoMetadataHelpers` 覆盖；`tests/test_web_three_domain.py` 覆盖 Web API
+   - 调整 `tests/test_pipeline_logic.py` 的 mock 以避免写入真实原文件
+   - 完整测试套件：315 passed, 1 skipped
+   - 提交 `TBD`：功能: 完善元数据写入并接入 pipeline 与 Web
 
 ### 待处理
 - [ ] 与 `spec.md` 对齐：当前 spec 中是否有三域 Web 的详细设计需要确认
 - [x] 将 QualityScorer 集成进 pipeline_runner
 - [x] 实现三域 Web 路由 `/select`、`/gallery`、`/guide`
+- [x] 完善元数据写入并接入 pipeline 与 Web
+- [ ] 实现真正的连拍分组（基于 EXIF 时间窗口）
+- [ ] 在选片工作台应用连拍分组
+- [ ] 实现选片大图复核界面（检测框/AF点/质量分项）
 - [x] 决定飞版判断策略：暂时保留当前自动飞版逻辑，后续调整
 
 ### 文件变更（本次未提交）
+- `src/metadata/exif_writer.py`
+- `src/pipeline_runner.py`
 - `src/web/app.py`
 - `src/web/templates/select.html`
 - `src/web/templates/gallery.html`
-- `src/web/templates/guide.html`
+- `tests/test_exif_writer.py`
+- `tests/test_pipeline_logic.py`
 - `tests/test_web_three_domain.py`
 - `.context/worklog.md`（本文件）

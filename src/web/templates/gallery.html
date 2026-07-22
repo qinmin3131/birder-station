@@ -59,6 +59,7 @@
                         <a href="/gallery" class="btn btn-sm btn-outline-secondary {{ 'active' if not current_filter and not current_date and not query else '' }}">全部</a>
                         <a href="/gallery?filter=selected" class="btn btn-sm btn-outline-success {{ 'active' if current_filter == 'selected' else '' }}">已选中</a>
                         <a href="/gallery?filter=uncertain" class="btn btn-sm btn-outline-warning {{ 'active' if current_filter == 'uncertain' else '' }}">待确认</a>
+                        <button class="btn btn-sm btn-info text-white" onclick="writeSelectedMetadata()">💾 写入选中照片元数据</button>
                         <form class="d-flex gap-2 ms-auto" action="/gallery" method="get">
                             <select class="form-select form-select-sm" name="date" onchange="this.form.submit()" style="width: auto;">
                                 <option value="">所有日期</option>
@@ -139,5 +140,27 @@
     </div>
 
     <script src="/lib/js/bootstrap.bundle.min.js"></script>
+    <script>
+        function writeSelectedMetadata() {
+            const btn = document.querySelector('button[onclick="writeSelectedMetadata()"]');
+            fetch('/api/gallery/write_metadata', { method: 'POST' })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        btn.classList.remove('btn-info', 'text-white');
+                        btn.classList.add('btn-success');
+                        btn.textContent = `✅ 已写入 ${data.success_count}/${data.total}`;
+                    } else {
+                        throw new Error(data.detail || 'unknown error');
+                    }
+                })
+                .catch(e => {
+                    console.error(e);
+                    btn.classList.remove('btn-info', 'text-white');
+                    btn.classList.add('btn-danger');
+                    btn.textContent = '❌ 失败';
+                });
+        }
+    </script>
 </body>
 </html>

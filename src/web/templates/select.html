@@ -101,6 +101,7 @@
                         <div class="d-grid gap-2 mt-2">
                             <button class="btn btn-sm btn-outline-success select-btn" onclick="markPhoto({{ photo.id }}, 'select')">✅ 选中</button>
                             <button class="btn btn-sm btn-outline-danger reject-btn" onclick="markPhoto({{ photo.id }}, 'reject')">❌ 淘汰</button>
+                            <button class="btn btn-sm btn-outline-info meta-btn" onclick="writeMetadata({{ photo.id }})">💾 写入元数据</button>
                         </div>
                     </div>
                     <div class="card-footer text-muted small">{{ photo.captured_date }}</div>
@@ -135,8 +136,30 @@
                 const id = card.dataset.id;
                 const score = parseFloat(card.dataset.score) || 0;
                 if (action === 'select' && score >= 80) markPhoto(id, 'select');
-                if (action === 'reject' && score < 50) markPhoto(id, 'reject');
-            });
+            if (action === 'reject' && score < 50) markPhoto(id, 'reject');
+        }
+
+        function writeMetadata(id) {
+            const btn = document.querySelector(`#photo-card-${id} .meta-btn`);
+            fetch(`/api/photo/${id}/write_metadata`, { method: 'POST' })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        btn.classList.remove('btn-outline-info');
+                        btn.classList.add('btn-success');
+                        btn.textContent = '✅ 已写入';
+                    } else {
+                        throw new Error(data.detail || 'unknown error');
+                    }
+                })
+                .catch(e => {
+                    console.error(e);
+                    btn.classList.remove('btn-outline-info');
+                    btn.classList.add('btn-danger');
+                    btn.textContent = '❌ 失败';
+                });
+        }
+    </script>});
         }
     </script>
 </body>

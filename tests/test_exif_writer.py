@@ -7,14 +7,21 @@ Tests cover:
 - Error handling
 """
 
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch, MagicMock
+
 import pytest
 import tempfile
 import os
-from pathlib import Path
-from unittest.mock import patch, MagicMock
 from PIL import Image
 
-from src.metadata.exif_writer import ExifWriter
+from src.metadata.exif_writer import (
+    ExifWriter,
+    quality_score_to_rating,
+    build_exif_tags_from_photo,
+    write_metadata_for_photo,
+)
 
 
 class TestExifWriter:
@@ -185,6 +192,160 @@ class TestExifWriterEncoding:
         result = writer.write_metadata(test_image_encoding, tags)
         # Should not raise exception
         assert result is True
+
+
+class TestExifWriterXmpSidecar:
+    """Test XMP sidecar writing for RAW files."""
+
+    def test_write_xmp_sidecar_creates_file(self):
+        with tempfile.NamedTemporaryFile(suffix='.ORF', delete=False) as f:
+            raw_path = f.name
+        try:
+            writer = ExifWriter("exiftool")
+            tags = {
+                "Title": "Cyanopica cyanus",
+                "Keywords": ["bird", "Cyanopica cyanus"],
+                "Rights": "Test",
+                "CustomBird": "灰喜鹊",
+            }
+            result = writer.write_metadata(raw_path, tags, write_mode="xmp_sidecar")
+            assert result is True
+            xmp_path = Path(raw_path).with_suffix(".ORF.xmp")
+            assert xmp_path.exists()
+            content = xmp_path.read_text(encoding="utf-8")
+            assert "Cyanopica cyanus" in content
+            assert "灰喜鹊" in content
+            assert "bird" in content
+        finally:
+            if os.path.exists(raw_path):
+                os.remove(raw_path)
+            xmp_path = Path(raw_path).with_suffix(".ORF.xmp")
+            if xmp_path.exists():
+                os.remove(xmp_path)
+
+    def test_jpeg_ignores_xmp_sidecar_mode(self):
+        with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as f:
+            img = Image.new('RGB', (100, 100), color=(255, 0, 0))
+            img.save(f.name)
+            jpg_path = f.name
+        try:
+            with patch('subprocess.run') as mock_run:
+                mock_run.return_value = MagicMock(returncode=0)
+                writer = ExifWriter("exiftool")
+                result = writer.write_metadata(jpg_path, {"XPTitle": "Test"}, write_mode="xmp_sidecar")
+                assert result is True
+                # JPEG should still use exiftool, not create sidecar
+                xmp_path = Path(jpg_path).with_suffix(".jpg.xmp")
+                assert not xmp_path.exists()
+                mock_run.assert_called_once()
+        finally:
+            if os.path.exists(jpg_path):
+                os.remove(jpg_path)
+
+
+class TestPhotoMetadataHelpers:
+    """Test helpers that build tags from Photo records."""
+
+    def test_quality_score_to_rating(self):
+        assert quality_score_to_rating(None) == 0
+        assert quality_score_to_rating(0) == 0
+        assert quality_score_to_rating(29) == 0
+        assert quality_score_to_rating(30) == 1
+        assert quality_score_to_rating(60) == 2
+        assert quality_score_to_rating(75) == 3
+        assert quality_score_to_rating(85) == 4
+        assert quality_score_to_rating(95) == 5
+        assert quality_score_to_rating(150) == 5
+
+    def test_build_exif_tags_from_photo(self):
+        photo = SimpleNamespace(
+            primary_bird_cn="麻雀",
+            scientific_name="Passer montanus",
+            location_tag="奥林匹克森林公园",
+            captured_date="2026-07-20",
+            quality_score=85,
+            is_selected=True,
+        )
+        tags = build_exif_tags_from_photo(photo)
+        assert tags["ImageDescription"] == "麻雀 | Passer montanus | 奥林匹克森林公园 | 2026-07-20"
+        assert tags["XMP:Title"] == "麻雀 | Passer montanus"
+        assert tags["IPTC:Keywords"] == ["麻雀", "Passer montanus", "奥林匹克森林公园"]
+        assert tags["XMP:Subject"] == ["麻雀", "Passer montanus", "奥林匹克森林公园"]
+        assert tags["XMP:Pick"] == "1"
+        assert tags["XMP:Rating"] == 4
+
+    def test_build_exif_tags_from_photo_defaults(self):
+        photo = SimpleNamespace(
+            primary_bird_cn=None,
+            scientific_name=None,
+            location_tag=None,
+            captured_date=None,
+            quality_score=None,
+            is_selected=False,
+        )
+        tags = build_exif_tags_from_photo(photo)
+        assert tags["XMP:Title"] == "WingScribe Photo"
+        assert tags["XMP:Rating"] == 0
+        assert tags["XMP:Pick"] == "0"
+
+    @patch("os.path.exists")
+    @patch("subprocess.run")
+    def test_write_metadata_for_photo_jpeg(self, mock_run, mock_exists):
+        mock_exists.return_value = True
+        mock_run.return_value = MagicMock(returncode=0)
+
+        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as f:
+            img = Image.new("RGB", (100, 100), color=(255, 0, 0))
+            img.save(f.name)
+            jpg_path = f.name
+
+        try:
+            photo = SimpleNamespace(
+                original_path=jpg_path,
+                file_path=jpg_path,
+                primary_bird_cn="灰喜鹊",
+                scientific_name="Cyanopica cyanus",
+                location_tag="北京植物园",
+                captured_date="2026-07-21",
+                quality_score=92,
+                is_selected=True,
+            )
+            writer = ExifWriter("exiftool")
+            result = write_metadata_for_photo(photo, writer, write_mode="exif")
+            assert result is True
+            mock_run.assert_called_once()
+        finally:
+            if os.path.exists(jpg_path):
+                os.remove(jpg_path)
+
+    def test_write_metadata_for_photo_raw_sidecar(self):
+        with tempfile.NamedTemporaryFile(suffix=".ORF", delete=False) as f:
+            raw_path = f.name
+        try:
+            photo = SimpleNamespace(
+                original_path=raw_path,
+                file_path=raw_path,
+                primary_bird_cn="灰喜鹊",
+                scientific_name="Cyanopica cyanus",
+                location_tag="北京植物园",
+                captured_date="2026-07-21",
+                quality_score=92,
+                is_selected=True,
+            )
+            writer = ExifWriter("exiftool")
+            result = write_metadata_for_photo(photo, writer, write_mode="xmp_sidecar")
+            assert result is True
+            xmp_path = Path(raw_path).with_suffix(".ORF.xmp")
+            assert xmp_path.exists()
+            content = xmp_path.read_text(encoding="utf-8")
+            assert "灰喜鹊" in content
+            assert "Cyanopica cyanus" in content
+        finally:
+            if os.path.exists(raw_path):
+                os.remove(raw_path)
+            xmp_path = Path(raw_path).with_suffix(".ORF.xmp")
+            if xmp_path.exists():
+                os.remove(xmp_path)
 
 
 if __name__ == "__main__":

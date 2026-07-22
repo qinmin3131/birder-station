@@ -9,6 +9,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor, wait
 from pathlib import Path
 from datetime import datetime
+from types import SimpleNamespace
 
 # Add project root to sys.path to allow running as script
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -21,7 +22,7 @@ from src.core.processor import ImageProcessor
 from src.recognition.inference_local import LocalBirdRecognizer
 from src.recognition.inference_dongniao import DongniaoRecognizer
 from src.recognition.inference_api import APIBirdRecognizer
-from src.metadata.exif_writer import ExifWriter
+from src.metadata.exif_writer import ExifWriter, write_metadata_for_photo
 from src.utils.config_loader import load_config, validate_paths_config
 from src.utils.env_check import check_system_dependencies
 
@@ -584,6 +585,22 @@ class WingScribePipeline:
                 'quality_score': quality_score,
                 'quality_details': quality_details,
             })
+            
+            # Write metadata to original file (JPEG embed, RAW sidecar)
+            ext = Path(entry.path).suffix.lower()
+            raw_exts = {'.nef', '.orf', '.cr2', '.cr3', '.arw', '.dng', '.rw2', '.pef', '.raf'}
+            write_mode = "xmp_sidecar" if ext in raw_exts else "exif"
+            meta_record = SimpleNamespace(
+                original_path=entry.path,
+                file_path=entry.path,
+                primary_bird_cn=cn_name,
+                scientific_name=sci_name,
+                location_tag=meta.get('location_tag'),
+                captured_date=meta.get('captured_date'),
+                quality_score=quality_score,
+                is_selected=False,
+            )
+            write_metadata_for_photo(meta_record, self.exif_writer, write_mode=write_mode)
             
             log_name = cn_name if not is_low_conf else f"Uncertain ({top_result['scientific_name']})"
             # 根据日志等级决定输出详细程度
