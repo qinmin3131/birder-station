@@ -1692,6 +1692,151 @@ def gallery_page(
 @app.get("/guide", response_class=HTMLResponse)
 def guide_page(request: Request, q: str = ""):
     """鸟类图鉴：已解锁物种墙，按科分组。本次外拍新增物种高亮。"""
+
+
+@app.get("/log", response_class=HTMLResponse)
+def birding_log_page(request: Request):
+    """观鸟记录：按日期聚合每次外拍及观测到的物种。"""
+    return templates.TemplateResponse(
+        request, "log.html",
+        {
+            "request": request,
+        },
+    )
+
+
+@app.get("/api/log")
+def api_birding_log(
+    date_from: str | None = None,
+    date_to: str | None = None,
+    year: int | None = None,
+):
+    """返回按日期聚合的观鸟记录。
+
+    聚合口径：
+    - 以 Outing 为主体，按 start_date 倒序。
+    - 每个 outing 内列出所有识别出的物种（primary_bird_cn + scientific_name）。
+    - 统计每个 outing 的照片总数、物种数、新种数（该物种首次在此 outing 出现）。
+    - 返回地点信息（优先使用 outing 的地点，否则取照片地点聚合）。
+    """
+    session = get_sqlalchemy_session()
+    try:
+        outing_query = session.query(Outing).order_by(Outing.start_date.desc(), Outing.created_at.desc())
+        if year:
+            outing_query = outing_query.filter(Outing.start_date.like(f"{year}%"))
+        if date_from:
+            outing_query = outing_query.filter(Outing.start_date >= date_from)
+        if date_to:
+            outing_query = outing_query.filter(Outing.start_date <= date_to)
+
+        outings = outing_query.all()
+        if not outings:
+            return {"status": "success", "records": [], "summary": {"total_outings": 0, "total_species": 0, "total_photos": 0}}
+
+        # Determine "new" species for each outing by processing from oldest to newest.
+        # A species is new for an outing if it appears in that outing and no earlier outing.
+        sorted_for_new_check = sorted(outings, key=lambda o: (o.start_date or "", o.created_at or ""))
+        species_seen_before = set()
+        outing_new_species = {}
+        for outing in sorted_for_new_check:
+            species_rows = (
+                session.query(Photo.primary_bird_cn, Photo.scientific_name)
+                .filter(
+                    Photo.outing_id == outing.id,
+                    Photo.primary_bird_cn.isnot(None),
+                )
+                .group_by(Photo.primary_bird_cn, Photo.scientific_name)
+                .all()
+            )
+            current_keys = set()
+            for row in species_rows:
+                current_keys.add(row.scientific_name or row.primary_bird_cn)
+                current_keys.add(row.primary_bird_cn)
+            outing_new_species[outing.id] = current_keys - species_seen_before
+            species_seen_before.update(current_keys)
+
+        # Build records in descending order (most recent first)
+        records = []
+        for outing in outings:
+            species_rows = (
+                session.query(
+                    Photo.primary_bird_cn,
+                    Photo.scientific_name,
+                    func.count(Photo.id).label("photo_count"),
+                    func.max(Photo.quality_score).label("best_quality"),
+                )
+                .filter(
+                    Photo.outing_id == outing.id,
+                    Photo.primary_bird_cn.isnot(None),
+                )
+                .group_by(Photo.primary_bird_cn, Photo.scientific_name)
+                .order_by(func.count(Photo.id).desc())
+                .all()
+            )
+
+            species_list = []
+            for row in species_rows:
+                species_keys = {row.scientific_name or row.primary_bird_cn, row.primary_bird_cn}
+                is_new = any(k in outing_new_species.get(outing.id, set()) for k in species_keys)
+                species_list.append({
+                    "cn": row.primary_bird_cn,
+                    "scientific_name": row.scientific_name,
+                    "photo_count": row.photo_count,
+                    "best_quality": row.best_quality or 0,
+                    "is_new": is_new,
+                })
+
+            location_parts = [p for p in [outing.location_tag] if p]
+            location_name = " / ".join(location_parts) if location_parts else "未知地点"
+
+            records.append({
+                "outing_id": outing.id,
+                "outing_name": outing.name,
+                "start_date": outing.start_date,
+                "end_date": outing.end_date,
+                "location": location_name,
+                "photo_count": sum(s["photo_count"] for s in species_list),
+                "species_count": len(species_list),
+                "new_species_count": sum(1 for s in species_list if s["is_new"]),
+                "species": species_list,
+            })
+
+        summary = {
+            "total_outings": len(records),
+            "total_species": len({(s["cn"] or s["scientific_name"]) for r in records for s in r["species"]}),
+            "total_photos": sum(r["photo_count"] for r in records),
+        }
+
+        return {
+            "status": "success",
+            "records": records,
+            "summary": summary,
+        }
+    except Exception as e:
+        logger.error(f"Failed to fetch birding log: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        session.close()
+
+
+@app.get("/api/log/years")
+def api_birding_log_years():
+    """返回有观鸟记录的所有年份，用于筛选。"""
+    session = get_sqlalchemy_session()
+    try:
+        rows = session.query(Outing.start_date).filter(Outing.start_date.isnot(None)).distinct().order_by(Outing.start_date.desc()).all()
+        years = sorted({str(d[0])[:4] for d in rows if d[0]}, reverse=True)
+        return {"status": "success", "years": years}
+    except Exception as e:
+        logger.error(f"Failed to fetch birding log years: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        session.close()
+
+
+@app.get("/guide", response_class=HTMLResponse)
+def guide_page(request: Request, q: str = ""):
+    """鸟类图鉴：已解锁物种墙，按科分组。本次外拍新增物种高亮。"""
     session = get_sqlalchemy_session()
     try:
         # Determine the most recent outing as the "current" one

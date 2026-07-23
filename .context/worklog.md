@@ -385,6 +385,20 @@
     - 验证：
       - 完整测试套件：`345 passed, 1 skipped`。
 
+21. **观鸟记录**
+    - 需求：用户要求接下来做观鸟记录，按日期聚合每次外拍及观测到的物种。
+    - 后端：
+      - `src/web/app.py`：新增 `GET /log` 页面路由和 `GET /api/log`、``GET /api/log/years` 数据接口。
+      - 聚合口径：以 Outing 为主体，按 `start_date` 倒序；每个 outing 统计照片数、物种数、新种数（该物种首次出现的 outing 才标新）；地点取 `outing.location_tag`。
+    - 前端：
+      - 新建 `src/web/templates/log.html`：观鸟记录页面，按卡片展示每次外拍，包含日期、地点、照片数、物种数、新种数、物种芯片列表，并支持年份筛选。
+      - 更新 `src/web/templates/navbar.html`：导航栏新增“观鸟记录”入口。
+      - 更新 `src/web/templates/index.html`：工作台入口增加第四个卡片“观鸟记录”。
+    - 测试：
+      - 新增 `tests/test_web_log.py`：覆盖页面渲染、按年份/日期聚合、物种新种判定、空数据库、年份列表接口。
+    - 验证：
+      - 完整测试套件：`350 passed, 1 skipped`。
+
 ### 待处理
 - [ ] 用户已明确取消“图库：批量导出 / 下载选中照片”（`spec.md` §5.6），改为打开本地目录按钮。
 
