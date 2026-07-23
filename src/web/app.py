@@ -733,6 +733,11 @@ class SelectMarkRequest(BaseModel):
     action: str  # select | keep | reject
 
 
+class AutoPickRequest(BaseModel):
+    outing_id: int = 0
+    min_quality: int = 80
+
+
 class CorrectSpeciesRequest(BaseModel):
     scientific_name: str
     chinese_name: Optional[str] = None
@@ -951,6 +956,53 @@ def select_mark(req: SelectMarkRequest):
         raise
     except Exception as e:
         logger.error(f"Failed to mark photo {req.photo_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        session.close()
+
+
+@app.post("/api/select/auto-pick")
+def select_auto_pick(req: AutoPickRequest):
+    """批量快速审阅：对连拍组每组选最佳，单张照片按质量阈值直接选中。"""
+    session = get_sqlalchemy_session()
+    try:
+        query = session.query(Photo)
+        if req.outing_id:
+            query = query.filter(Photo.outing_id == req.outing_id)
+        else:
+            outing = session.query(Outing).order_by(Outing.created_at.desc()).first()
+            if outing:
+                query = query.filter(Photo.outing_id == outing.id)
+        query = query.filter((Photo.rating.is_(None)) | (Photo.rating != -1))
+
+        grouped: dict[int, list[Photo]] = {}
+        ungrouped: list[Photo] = []
+        for p in query.all():
+            if p.group_id:
+                grouped.setdefault(p.group_id, []).append(p)
+            else:
+                ungrouped.append(p)
+
+        selected_ids: list[int] = []
+        for group_photos in grouped.values():
+            best = max(group_photos, key=lambda p: (p.quality_score or 0, p.id))
+            if best.quality_score and best.quality_score >= req.min_quality:
+                best.is_selected = True
+                best.rating = max(best.rating or 0, 1)
+                selected_ids.append(best.id)
+
+        for p in ungrouped:
+            if p.quality_score and p.quality_score >= req.min_quality:
+                p.is_selected = True
+                p.rating = max(p.rating or 0, 1)
+                selected_ids.append(p.id)
+
+        session.commit()
+        return {"status": "success", "selected_count": len(selected_ids), "selected_ids": selected_ids}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to auto-pick: {e}")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         session.close()

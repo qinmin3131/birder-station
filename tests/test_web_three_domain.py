@@ -7,7 +7,7 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from src.db.models import Base, Photo, Species, Outing
+from src.db.models import Base, Photo, PhotoGroup, Species, Outing
 from src.web import app as web_app
 from fastapi import HTTPException
 
@@ -139,6 +139,31 @@ def test_select_mark_api_updates_status(tmp_path, monkeypatch):
     assert photo.is_selected is True
     session.close()
 
+
+def test_select_auto_pick_picks_best_per_group_and_high_quality_ungrouped(tmp_path, monkeypatch):
+    db_path = _create_temp_db(tmp_path)
+    monkeypatch.setattr(web_app, "db_path", Path(db_path))
+    session, _ = _create_session(db_path)
+    g1 = PhotoGroup(outing_id=1, best_photo_id=0)
+    session.add(g1)
+    session.flush()
+
+    session.add(Photo(file_path="g1_low.jpg", filename="g1_low.jpg", group_id=g1.id, quality_score=60, outing_id=1))
+    session.add(Photo(file_path="g1_high.jpg", filename="g1_high.jpg", group_id=g1.id, quality_score=85, outing_id=1))
+    session.add(Photo(file_path="solo.jpg", filename="solo.jpg", quality_score=82, outing_id=1))
+    session.add(Photo(file_path="weak.jpg", filename="weak.jpg", quality_score=40, outing_id=1))
+    session.commit()
+
+    result = web_app.select_auto_pick(web_app.AutoPickRequest(outing_id=1, min_quality=80))
+    assert result["status"] == "success"
+    assert result["selected_count"] == 2
+
+    selected_paths = set()
+    session, _ = _create_session(db_path)
+    for p in session.query(Photo).filter(Photo.is_selected == True).all():
+        selected_paths.add(p.file_path)
+    session.close()
+    assert selected_paths == {"g1_high.jpg", "solo.jpg"}
 
 def test_gallery_page_renders_template(tmp_path, monkeypatch):
     db_path = _create_temp_db(tmp_path)

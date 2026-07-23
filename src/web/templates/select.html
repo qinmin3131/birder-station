@@ -34,6 +34,10 @@
         .nav-arrow.prev { left: 16px; }
         .nav-arrow.next { right: 16px; }
         .nav-arrow:disabled { opacity: 0.3; cursor: not-allowed; }
+        .keyboard-focus .card {
+            border: 3px solid #0d6efd !important;
+            box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25) !important;
+        }
     </style>
 </head>
 <body>
@@ -77,7 +81,8 @@
                         <label class="form-check-label small" for="showRawToggle">显示原图</label>
                     </div>
                     <div class="btn-group btn-group-sm">
-                        <button class="btn btn-success" onclick="batchAction('select')">批量选中 ≥80分</button>
+                        <button class="btn btn-success" onclick="autoPickBest(80)" title="自动选每组最佳 + 单张 ≥80 分">🤖 一键精选</button>
+                        <button class="btn btn-outline-success" onclick="autoPickBest(50)" title="自动选每组最佳 + 单张 ≥50 分">🤖 一键可用</button>
                         <button class="btn btn-outline-secondary" onclick="batchAction('keep')">保留</button>
                         <button class="btn btn-outline-danger" onclick="batchAction('reject')">淘汰</button>
                         <a href="/gallery?outing_id={{ outing_id }}" class="btn btn-primary">查看本次外拍 → 图库</a>
@@ -113,7 +118,8 @@
         {% endif %}
 
         {% for group in groups %}
-        <div class="group-header d-flex justify-content-between align-items-center">
+        {% set global_group_index = loop.index0 %}
+        <div class="group-header d-flex justify-content-between align-items-center" data-group-index="{{ global_group_index }}">
             <span>
                 {% if group.type == 'burst' %}📦 连拍组{% else %}🖼️ 照片{% endif %} #{{ group.id }}
                 · {{ group.date }}
@@ -127,11 +133,13 @@
             {% endif %}
         </div>
 
-        <div class="photo-grid mb-4">
+        <div class="photo-grid mb-4" data-group-index="{{ global_group_index }}">
             {% for photo in group.photos %}
             {% set processed_path = photo.web_processed_path if photo.web_processed_path else '' %}
             {% set raw_path = photo.web_raw_path if photo.web_raw_path else '' %}
-            <div class="photo-card" id="photo-card-{{ photo.id }}">
+            <div class="photo-card" id="photo-card-{{ photo.id }}" data-photo-id="{{ photo.id }}"
+                 data-group-index="{{ global_group_index }}" data-photo-index="{{ loop.index0 }}"
+                 data-group-id="{{ group.group_id or 0 }}">
                 <div class="card h-100 shadow-sm {{ 'selected-card' if photo.is_selected else '' }} {{ 'rejected-card' if photo.is_rejected else '' }}"
                      data-id="{{ photo.id }}"
                      data-score="{{ photo.quality_score|default(0) }}">
@@ -220,11 +228,23 @@
                                 <h6 class="card-subtitle mb-2 text-white-50">候选结果 Top 5</h6>
                                 <ul class="list-group list-group-flush small bg-dark" id="reviewCandidates"></ul>
                                 <hr class="border-secondary">
+                                <h6 class="card-subtitle mb-2 text-white-50">修正鸟种（C 键聚焦）</h6>
+                                <div class="input-group input-group-sm mb-2">
+                                    <input type="text" class="form-control form-control-sm bg-dark text-white border-secondary" id="reviewSpeciesInput"
+                                           placeholder="输入中文名或学名" autocomplete="off"
+                                           oninput="searchReviewSpecies(this.value)">
+                                    <button class="btn btn-outline-secondary" type="button" onclick="confirmReviewSpecies()">确认</button>
+                                </div>
+                                <div class="list-group list-group-flush small bg-dark border-secondary" id="reviewSpeciesCandidates" style="max-height: 120px; overflow-y: auto;"></div>
+                                <hr class="border-secondary">
                                 <h6 class="card-subtitle mb-2 text-white-50">操作</h6>
                                 <div class="d-grid gap-2">
-                                    <button class="btn btn-success btn-sm" id="reviewSelectBtn" onclick="reviewMark('select')">✅ 选中</button>
-                                    <button class="btn btn-danger btn-sm" id="reviewRejectBtn" onclick="reviewMark('reject')">❌ 淘汰</button>
-                                    <button class="btn btn-info btn-sm" id="reviewMetaBtn" onclick="reviewWriteMetadata()">💾 写入元数据</button>
+                                    <button class="btn btn-success btn-sm" id="reviewSelectBtn" onclick="reviewMark('select')">✅ 选中（Space）</button>
+                                    <button class="btn btn-danger btn-sm" id="reviewRejectBtn" onclick="reviewMark('reject')">❌ 淘汰（X / Del）</button>
+                                    <button class="btn btn-info btn-sm" id="reviewMetaBtn" onclick="reviewWriteMetadata()">💾 写入元数据（M）</button>
+                                </div>
+                                <div class="mt-3 small text-white-50">
+                                    快捷键：←/→ 切换照片 · 滚轮缩放 · 拖拽平移 · ESC 关闭
                                 </div>
                             </div>
                         </div>
@@ -300,6 +320,24 @@
             });
         }
 
+        function autoPickBest(minQuality) {
+            fetch('/api/select/auto-pick', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({outing_id: {{ outing_id }}, min_quality: minQuality})
+            })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        data.selected_ids.forEach(id => markPhoto(id, 'select'));
+                        alert(`已自动选中 ${data.selected_count} 张照片`);
+                    } else {
+                        throw new Error(data.detail || 'unknown error');
+                    }
+                })
+                .catch(e => console.error(e));
+        }
+
         function writeMetadata(id) {
             const btn = document.querySelector(`#photo-card-${id} .meta-btn`);
             fetch(`/api/photo/${id}/write_metadata`, { method: 'POST' })
@@ -321,6 +359,9 @@
                 });
         }
 
+        const groups = {{ groups | tojson }};
+        let focusedGroupIndex = 0;
+        let focusedPhotoIndex = 0;
         let currentReviewPhotoId = null;
         let currentReviewData = null;
         let reviewModal = null;
@@ -333,6 +374,109 @@
         let dragStartY = 0;
         let naturalWidth = 0;
         let naturalHeight = 0;
+
+        function getFlatGroups() {
+            const flat = [];
+            groups.forEach((g, gi) => {
+                g.photos.forEach((p, pi) => {
+                    flat.push({ groupIndex: gi, photoIndex: pi, photoId: p.id, groupId: g.group_id || 0 });
+                });
+            });
+            return flat;
+        }
+
+        function getCurrentPhotoId() {
+            const g = groups[focusedGroupIndex];
+            if (!g || !g.photos[focusedPhotoIndex]) return null;
+            return g.photos[focusedPhotoIndex].id;
+        }
+
+        function updateKeyboardFocus() {
+            document.querySelectorAll('.keyboard-focus').forEach(el => el.classList.remove('keyboard-focus'));
+            const id = getCurrentPhotoId();
+            if (!id) return;
+            const card = document.getElementById(`photo-card-${id}`);
+            if (card) {
+                card.classList.add('keyboard-focus');
+                card.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+            }
+        }
+
+        document.addEventListener('keydown', e => {
+            const modalOpen = document.getElementById('reviewModal').classList.contains('show');
+            if (modalOpen) return;
+
+            const flat = getFlatGroups();
+            let flatIdx = flat.findIndex(x => x.groupIndex === focusedGroupIndex && x.photoIndex === focusedPhotoIndex);
+            if (flatIdx < 0) flatIdx = 0;
+
+            switch (e.key) {
+                case 'ArrowDown':
+                    e.preventDefault();
+                    if (focusedGroupIndex < groups.length - 1) {
+                        focusedGroupIndex++;
+                        focusedPhotoIndex = Math.min(focusedPhotoIndex, (groups[focusedGroupIndex].photos || []).length - 1);
+                    }
+                    updateKeyboardFocus();
+                    break;
+                case 'ArrowUp':
+                    e.preventDefault();
+                    if (focusedGroupIndex > 0) {
+                        focusedGroupIndex--;
+                        focusedPhotoIndex = Math.min(focusedPhotoIndex, (groups[focusedGroupIndex].photos || []).length - 1);
+                    }
+                    updateKeyboardFocus();
+                    break;
+                case 'ArrowRight':
+                    e.preventDefault();
+                    if (focusedPhotoIndex < (groups[focusedGroupIndex].photos || []).length - 1) {
+                        focusedPhotoIndex++;
+                    } else if (focusedGroupIndex < groups.length - 1) {
+                        focusedGroupIndex++;
+                        focusedPhotoIndex = 0;
+                    }
+                    updateKeyboardFocus();
+                    break;
+                case 'ArrowLeft':
+                    e.preventDefault();
+                    if (focusedPhotoIndex > 0) {
+                        focusedPhotoIndex--;
+                    } else if (focusedGroupIndex > 0) {
+                        focusedGroupIndex--;
+                        focusedPhotoIndex = (groups[focusedGroupIndex].photos || []).length - 1;
+                    }
+                    updateKeyboardFocus();
+                    break;
+                case ' ': // Space opens review
+                case 'Enter':
+                    e.preventDefault();
+                    const pid = getCurrentPhotoId();
+                    if (pid) openReview(pid);
+                    break;
+                case 's':
+                case 'S':
+                    e.preventDefault();
+                    markPhoto(getCurrentPhotoId(), 'select');
+                    break;
+                case 'x':
+                case 'X':
+                case 'Delete':
+                    e.preventDefault();
+                    markPhoto(getCurrentPhotoId(), 'reject');
+                    break;
+                case 'b':
+                case 'B':
+                    e.preventDefault();
+                    const curGroup = groups[focusedGroupIndex];
+                    if (curGroup && curGroup.group_id) pickBest(curGroup.group_id);
+                    break;
+                case 'w':
+                case 'W':
+                    e.preventDefault();
+                    writeMetadata(getCurrentPhotoId());
+                    break;
+            }
+        });
 
         function openReview(photoId) {
             currentReviewPhotoId = photoId;
@@ -508,12 +652,12 @@
             const rejectBtn = document.getElementById('reviewRejectBtn');
             const metaBtn = document.getElementById('reviewMetaBtn');
             selectBtn.classList.remove('disabled');
-            selectBtn.textContent = '✅ 选中';
+            selectBtn.textContent = '✅ 选中（Space）';
             rejectBtn.classList.remove('disabled');
-            rejectBtn.textContent = '❌ 淘汰';
+            rejectBtn.textContent = '❌ 淘汰（X / Del）';
             metaBtn.classList.remove('btn-success', 'btn-danger');
             metaBtn.classList.add('btn-info');
-            metaBtn.textContent = '💾 写入元数据';
+            metaBtn.textContent = '💾 写入元数据（M）';
         }
 
         function reviewMark(action) {
@@ -522,6 +666,9 @@
             const btn = action === 'select' ? document.getElementById('reviewSelectBtn') : document.getElementById('reviewRejectBtn');
             btn.classList.add('disabled');
             btn.textContent = action === 'select' ? '已选中' : '已淘汰';
+            if (action === 'reject' && currentReviewData && currentReviewData.next_photo_id) {
+                setTimeout(() => loadReview(currentReviewData.next_photo_id), 300);
+            }
         }
 
         function reviewWriteMetadata() {
@@ -543,6 +690,69 @@
                     btn.classList.remove('btn-info');
                     btn.classList.add('btn-danger');
                     btn.textContent = '❌ 失败';
+                });
+        }
+
+        let reviewSpeciesMatches = [];
+        let selectedReviewSpecies = null;
+
+        function searchReviewSpecies(query) {
+            const list = document.getElementById('reviewSpeciesCandidates');
+            list.innerHTML = '';
+            reviewSpeciesMatches = [];
+            selectedReviewSpecies = null;
+            if (!query || query.length < 2) return;
+            fetch(`/api/search-species?q=${encodeURIComponent(query)}`)
+                .then(r => r.json())
+                .then(data => {
+                    reviewSpeciesMatches = data.results || [];
+                    reviewSpeciesMatches.forEach((s, idx) => {
+                        const item = document.createElement('button');
+                        item.className = 'list-group-item list-group-item-action list-group-item-dark text-white-50 small py-1';
+                        item.type = 'button';
+                        item.textContent = `${s.chinese_name || s.scientific_name} (${s.scientific_name})`;
+                        item.onclick = () => {
+                            selectedReviewSpecies = s;
+                            document.getElementById('reviewSpeciesInput').value = s.chinese_name || s.scientific_name;
+                            list.innerHTML = '';
+                        };
+                        list.appendChild(item);
+                    });
+                })
+                .catch(e => console.error(e));
+        }
+
+        function confirmReviewSpecies() {
+            if (!selectedReviewSpecies) {
+                alert('请先输入并选择一个候选鸟种');
+                return;
+            }
+            if (!currentReviewPhotoId) return;
+            fetch(`/api/photo/${currentReviewPhotoId}/correct-species`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    scientific_name: selectedReviewSpecies.scientific_name,
+                    chinese_name: selectedReviewSpecies.chinese_name,
+                    write_metadata: true
+                })
+            })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        document.getElementById('reviewBirdName').textContent = selectedReviewSpecies.chinese_name || selectedReviewSpecies.scientific_name;
+                        document.getElementById('reviewSciName').textContent = selectedReviewSpecies.scientific_name;
+                        document.getElementById('reviewSpeciesInput').value = '';
+                        document.getElementById('reviewSpeciesCandidates').innerHTML = '';
+                        selectedReviewSpecies = null;
+                        alert('鸟种已修正');
+                    } else {
+                        throw new Error(data.detail || 'unknown error');
+                    }
+                })
+                .catch(e => {
+                    console.error(e);
+                    alert('修正失败');
                 });
         }
 
@@ -568,9 +778,45 @@
         window.addEventListener('mouseup', () => isDragging = false);
 
         document.getElementById('reviewModal').addEventListener('keydown', e => {
-            if (e.key === 'ArrowLeft') goPrevPhoto();
-            if (e.key === 'ArrowRight') goNextPhoto();
-            if (e.key === 'Escape') reviewModal.hide();
+            const active = document.activeElement;
+            if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) {
+                if (e.key === 'Escape') active.blur();
+                return;
+            }
+
+            switch (e.key) {
+                case 'ArrowLeft':
+                    e.preventDefault();
+                    goPrevPhoto();
+                    break;
+                case 'ArrowRight':
+                    e.preventDefault();
+                    goNextPhoto();
+                    break;
+                case ' ':
+                    e.preventDefault();
+                    reviewMark('select');
+                    break;
+                case 'x':
+                case 'X':
+                case 'Delete':
+                    e.preventDefault();
+                    reviewMark('reject');
+                    break;
+                case 'm':
+                case 'M':
+                    e.preventDefault();
+                    reviewWriteMetadata();
+                    break;
+                case 'c':
+                case 'C':
+                    e.preventDefault();
+                    document.getElementById('reviewSpeciesInput').focus();
+                    break;
+                case 'Escape':
+                    reviewModal.hide();
+                    break;
+            }
         });
 
         window.addEventListener('resize', () => {

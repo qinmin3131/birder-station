@@ -309,9 +309,6 @@
     - 验证：
       - 完整测试套件：`344 passed, 1 skipped`。
 
-### 待处理
-- [ ] 选片键盘快捷键 / 连拍组快速审阅（`spec.md` §5.5）
-
 16. **选片深度复核（IQA 全屏预览 / 缩放 / 组内切换）**
     - 需求：`spec.md` §5.3 步骤三要求组内复核大字预览、叠加检测框/AF点/姿态关键点，并支持左右键切换；§3.2 深度复核界面要求原图舞台、IQA 裁切预览、倍率缩放和全屏查看。
     - 后端：
@@ -339,3 +336,25 @@
       - 保留 `tests/test_web_review.py` 中 `test_preview_decodes_raw_to_temp_jpg` 与 `test_preview_returns_jpeg_for_existing_jpg` 验证预览接口返回正常。
     - 验证：
       - 完整测试套件：`344 passed, 1 skipped`。
+
+18. **选片键盘快捷键与连拍组快速审阅**
+    - 需求：`spec.md` §5.5 要求选片页支持键盘快捷键（选择/淘汰/上一张/下一张/放大/缩小等），以及连拍组一键选最佳，快速完成批量审阅。
+    - 后端：
+      - `src/web/app.py`：
+        - 新增 `POST /api/select/auto-pick`：对当前外拍中未被淘汰的照片按连拍组选质量分最高，单张照片按质量阈值直接选中；阈值参数 `min_quality` 支持 `80`（一键精选）和 `50`（一键可用）。
+        - `/select` 路由将照片按 `group_id` 分组并通过 `groups` 模板变量输出，便于前端按组导航。
+        - `GET /api/photo/{photo_id}/review` 保留 `prev_photo_id` / `next_photo_id`，支持复核弹窗内左右切换。
+    - 前端：
+      - `src/web/templates/select.html`：
+        - 新增星级筛选工具栏下方的“一键精选（≥80）”和“一键可用（≥50）”按钮。
+        - 新增全局键盘快捷键：⬅️/➡️ 在照片间移动，⬆️/⬇️ 切换连拍组，Enter/Space 打开复核，S 选中，X/Delete 淘汰，B 将当前/最佳照片设为组内最佳，M 写入元数据，C 聚焦到物种修正输入，Esc 关闭复核弹窗。
+        - 新增 `.keyboard-focus` 视觉高亮，当前聚焦照片在网格中清晰可见。
+        - 复核弹窗内整合 species correction UI，可直接修正当前照片鸟种。
+    - 测试：
+      - 在 `tests/test_web_three_domain.py` 新增 `test_select_auto_pick_picks_best_per_group_and_high_quality_ungrouped`：验证分组选最佳、单张高质选中、淘汰照片不被选中。
+    - 验证：
+      - 完整测试套件：`345 passed, 1 skipped`。
+
+### 待处理
+- [ ] 图库：照片详情 / EXIF 侧边栏（`spec.md` §5.4）
+- [ ] 图库：批量导出 / 下载选中照片（`spec.md` §5.6）
