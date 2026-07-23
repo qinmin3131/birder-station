@@ -25,7 +25,12 @@ sys.path.append(str(BASE_DIR))
 
 from src.core.quality import QualityScorer
 from src.core.processor import ImageProcessor
-from src.metadata.exif_writer import ExifWriter, write_metadata_for_photo, read_exif_summary
+from src.metadata.exif_writer import (
+    ExifWriter,
+    write_metadata_for_photo,
+    read_exif_summary,
+    read_iso,
+)
 from src.utils.config_loader import load_config, validate_paths_config
 from src.core.io.path_generator import PathGenerator
 from src.core.indexer import PhotoIndexer
@@ -1039,6 +1044,21 @@ def get_photo_review(photo_id: int):
             except Exception:
                 pass
 
+        # Recompute quality score with the latest scorer (including ISO dimension) if bbox is available.
+        quality_score = photo.quality_score
+        if photo.bird_bbox and original_path and Path(original_path).exists():
+            try:
+                bbox = photo.bird_bbox
+                if isinstance(bbox, str):
+                    bbox = json.loads(bbox)
+                if len(bbox) == 4 and all(isinstance(v, (int, float)) for v in bbox):
+                    iso = read_iso(exif_writer, original_path)
+                    recomputed = QualityScorer().score_from_path(original_path, bbox, iso=iso)
+                    quality_score = recomputed["score"]
+                    quality_details = recomputed["details"]
+            except Exception as e:
+                logger.debug(f"Recompute quality score for review failed: {e}")
+
         prev_photo_id, next_photo_id = _get_review_neighbors(session, photo)
 
         exif_summary = read_exif_summary(exif_writer, original_path)
@@ -1051,7 +1071,7 @@ def get_photo_review(photo_id: int):
                 "primary_bird_cn": photo.primary_bird_cn,
                 "scientific_name": photo.scientific_name,
                 "confidence_score": photo.confidence_score,
-                "quality_score": photo.quality_score,
+                "quality_score": quality_score,
                 "bird_bbox": photo.bird_bbox,
                 "width": photo.width,
                 "height": photo.height,

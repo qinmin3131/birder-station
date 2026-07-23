@@ -22,7 +22,12 @@ from src.core.processor import ImageProcessor
 from src.recognition.inference_local import LocalBirdRecognizer
 from src.recognition.inference_dongniao import DongniaoRecognizer
 from src.recognition.inference_api import APIBirdRecognizer
-from src.metadata.exif_writer import ExifWriter, write_metadata_for_photo, read_capture_datetime
+from src.metadata.exif_writer import (
+    ExifWriter,
+    write_metadata_for_photo,
+    read_capture_datetime,
+    read_iso,
+)
 from src.utils.config_loader import load_config, validate_paths_config
 from src.utils.env_check import check_system_dependencies
 
@@ -752,8 +757,10 @@ class WingScribePipeline:
                 )
 
                 if success:
-                    # 5. Quality scoring (7-dim weighted score)
-                    quality_result = QualityScorer().score_from_path(str(temp_crop_path), box)
+                    # 5. Quality scoring (5-dim weighted score: clarity, contrast, exposure, subject_size, iso)
+                    exif_writer = getattr(self, "exif_writer", None)
+                    iso = read_iso(exif_writer, local_source_path) if exif_writer and local_source_path else None
+                    quality_result = QualityScorer().score_from_path(str(temp_crop_path), box, iso=iso)
                     quality_score = quality_result["score"]
                     quality_details = quality_result["details"]
 

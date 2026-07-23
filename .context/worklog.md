@@ -447,6 +447,18 @@
     - 验证：
       - 完整测试套件：`336 passed, 1 skipped`。
 
+24. **画质评分：接入 ISO 读取得分**
+    - 需求：在加入 ISO 评分维度的基础上，将 pipeline 与 review 界面真正从照片 EXIF 中读取 ISO 并参与评分计算。
+    - 后端：
+      - `src/metadata/exif_writer.py`：新增 `read_iso()`，优先用 ExifTool 读取 `-ISO`，失败回退 PIL `ISOSpeedRatings`；读不到或 ExifTool 缺失返回 `None`。
+      - `src/pipeline_runner.py`：在 `process_image()` 中通过 `read_iso()` 从原始文件读取 ISO 并传给 `QualityScorer().score_from_path()`；使用 `getattr(self, "exif_writer", None)` 保证兼容测试中的 `MockPipeline`。
+      - `src/web/app.py`：`get_photo_review()` 在原始文件存在且 `bird_bbox` 可用时，用 `read_iso()` + `QualityScorer().score_from_path()` 重新计算画质评分与细节，覆盖旧数据库记录；失败则静默回退原数据库值。
+    - 测试：
+      - 新增 `tests/test_exif_writer.py::TestReadIso`：覆盖 ExifTool 读取、带冒号输出、缺失值、ExifTool 未安装四种情况。
+      - 更新 `tests/test_web_review.py`：`review` 测试 mock `read_iso` 返回 800，并断言返回的 5 维 `quality_details` 与 `iso` 得分约 0.85。
+    - 验证：
+      - 完整测试套件：`340 passed, 1 skipped`。
+
 ### 待处理
 - 无。
 

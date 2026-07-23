@@ -273,6 +273,63 @@ def read_capture_datetime(exif_writer: ExifWriter, image_path: str) -> Optional[
     return None
 
 
+def read_iso(exif_writer: ExifWriter, image_path: str) -> Optional[int]:
+    """Read the ISO value from image EXIF metadata.
+
+    Tries ExifTool first (handles RAW and JPEG), then falls back to PIL for
+    standard JPEG EXIF. Returns None if ISO cannot be determined.
+    """
+    if not image_path or not os.path.exists(image_path):
+        return None
+
+    exiftool_cmd = exif_writer._resolve_exiftool()
+    if exiftool_cmd:
+        try:
+            cmd = [exiftool_cmd, "-ISO", "-s3", image_path]
+            result = subprocess.run(
+                cmd, capture_output=True, text=True, check=False, timeout=30
+            )
+            for line in result.stdout.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    # Some ExifTool outputs include "ISO : 400" or just "400"
+                    value = int(line)
+                    if value > 0:
+                        return value
+                except ValueError:
+                    # Try to extract numeric tail after colon or spaces
+                    parts = line.replace(":", " ").split()
+                    for part in parts:
+                        try:
+                            value = int(part)
+                            if value > 0:
+                                return value
+                        except ValueError:
+                            continue
+        except Exception as e:
+            logging.debug(f"ExifTool ISO read failed for {image_path}: {e}")
+
+    # Fallback to PIL for JPEG/PNG
+    try:
+        from PIL import Image
+        from PIL.ExifTags import TAGS
+
+        with Image.open(image_path) as img:
+            exif = img._getexif() or {}
+            for tag_id, value in exif.items():
+                tag_name = TAGS.get(tag_id, tag_id)
+                if tag_name == "ISOSpeedRatings":
+                    try:
+                        return int(value)
+                    except (TypeError, ValueError):
+                        pass
+    except Exception as e:
+        logging.debug(f"PIL ISO read failed for {image_path}: {e}")
+
+    return None
+
 def read_exif_summary(exif_writer: ExifWriter, image_path: str) -> Dict[str, Any]:
     """Read a concise set of EXIF metadata for display in the photo detail panel.
 

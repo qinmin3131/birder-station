@@ -1,6 +1,6 @@
 from datetime import datetime
 from pathlib import Path
-from unittest.mock import ANY, patch
+from unittest.mock import patch
 
 import pytest
 from PIL import Image
@@ -95,7 +95,8 @@ def test_review_returns_photo_metadata_and_exif_summary(client, sample_jpg, monk
         "file_size": sample_jpg.stat().st_size,
         "raw": {},
     }
-    with patch.object(web_app, "read_exif_summary", return_value=fake_exif):
+    with patch.object(web_app, "read_exif_summary", return_value=fake_exif), \
+         patch.object(web_app, "read_iso", return_value=800):
         response = client.get(f"/api/photo/{photo.id}/review")
     assert response.status_code == 200
 
@@ -105,10 +106,16 @@ def test_review_returns_photo_metadata_and_exif_summary(client, sample_jpg, monk
     assert data["photo"]["primary_bird_cn"] == "麻雀"
     assert data["photo"]["bird_bbox"] == [100, 100, 300, 300]
     assert data["candidates"][0]["cn"] == "麻雀"
-    assert data["quality_details"]["exposure"] == 90
     assert data["exif"]["camera_make"] == "OLYMPUS"
     assert data["exif"]["iso"] == 800
     assert data["exif"]["file_size"] == sample_jpg.stat().st_size
+
+    # Review API now recomputes quality score from the original image with the latest scorer.
+    assert set(data["quality_details"].keys()) == {
+        "clarity", "contrast", "exposure", "subject_size", "iso"
+    }
+    assert 0 <= data["photo"]["quality_score"] <= 100
+    assert data["quality_details"]["iso"] == pytest.approx(0.85, abs=1e-6)
 
 
 def test_review_returns_neighbor_ids_within_group(client, sample_jpg, monkeypatch):

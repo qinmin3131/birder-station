@@ -21,6 +21,8 @@ from src.metadata.exif_writer import (
     quality_score_to_rating,
     build_exif_tags_from_photo,
     write_metadata_for_photo,
+    read_iso,
+    read_capture_datetime,
 )
 
 
@@ -346,6 +348,69 @@ class TestPhotoMetadataHelpers:
             xmp_path = Path(raw_path).with_suffix(".ORF.xmp")
             if xmp_path.exists():
                 os.remove(xmp_path)
+
+
+class TestReadIso:
+    """Tests for ISO extraction helper."""
+
+    def test_read_iso_from_exiftool(self):
+        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as f:
+            img = Image.new("RGB", (100, 100), color=(255, 0, 0))
+            img.save(f.name)
+            jpg_path = f.name
+        try:
+            with patch("subprocess.run") as mock_run:
+                mock_run.return_value = MagicMock(
+                    returncode=0, stdout="400\n", stderr=""
+                )
+                writer = ExifWriter("exiftool")
+                assert read_iso(writer, jpg_path) == 400
+        finally:
+            if os.path.exists(jpg_path):
+                os.remove(jpg_path)
+
+    def test_read_iso_from_exiftool_with_colon(self):
+        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as f:
+            img = Image.new("RGB", (100, 100), color=(255, 0, 0))
+            img.save(f.name)
+            jpg_path = f.name
+        try:
+            with patch("subprocess.run") as mock_run:
+                mock_run.return_value = MagicMock(
+                    returncode=0, stdout="ISO : 800\n", stderr=""
+                )
+                writer = ExifWriter("exiftool")
+                assert read_iso(writer, jpg_path) == 800
+        finally:
+            if os.path.exists(jpg_path):
+                os.remove(jpg_path)
+
+    def test_read_iso_missing_returns_none(self):
+        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as f:
+            img = Image.new("RGB", (100, 100), color=(255, 0, 0))
+            img.save(f.name)
+            jpg_path = f.name
+        try:
+            with patch("subprocess.run") as mock_run:
+                mock_run.return_value = MagicMock(returncode=0, stdout="\n", stderr="")
+                writer = ExifWriter("exiftool")
+                assert read_iso(writer, jpg_path) is None
+        finally:
+            if os.path.exists(jpg_path):
+                os.remove(jpg_path)
+
+    def test_read_iso_exiftool_not_found(self):
+        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as f:
+            img = Image.new("RGB", (100, 100), color=(255, 0, 0))
+            img.save(f.name)
+            jpg_path = f.name
+        try:
+            with patch.object(ExifWriter, "_resolve_exiftool", return_value=None):
+                writer = ExifWriter("exiftool")
+                assert read_iso(writer, jpg_path) is None
+        finally:
+            if os.path.exists(jpg_path):
+                os.remove(jpg_path)
 
 
 if __name__ == "__main__":
