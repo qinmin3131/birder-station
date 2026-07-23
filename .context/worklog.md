@@ -298,21 +298,14 @@
     - 验证：
       - 完整测试套件：`343 passed, 1 skipped`。
 
-15. **选片等级筛选**
-    - 需求：`spec.md` §5.3 要求在选片页面按质量等级快速筛选：精选（≥80）、可用（50–79）、记录（<50）、淘汰、无鸟。
+15. **选片等级筛选 → 星级评分**
+    - 需求：`spec.md` §5.3 要求在选片页面按质量等级快速筛选：精选（≥80）、可用（50–79）、记录（<50）、淘汰、无鸟。用户要求与 Lightroom 星级评价一致，故改为数字星级展示。
     - 后端：
-      - `src/web/app.py` 的 `/select` 路由新增 `rating` 参数，并新增 `_apply_rating_filter()` 辅助函数实现五档过滤：
-        - `best`：有鸟种且质量分 ≥80 且未淘汰
-        - `usable`：有鸟种且质量分 50–79 且未淘汰
-        - `record`：有鸟种且质量分 <50 且未淘汰
-        - `rejected`：已淘汰（rating == -1）
-        - `no-bird`：无鸟种（primary_bird_cn 为空）
-      - 修复 `rating != -1` 在 SQLite 中对 NULL 值排除的问题，使用 `(rating IS NULL) OR (rating != -1)`。
+      - `src/web/app.py` 的 `_apply_rating_filter()` 将档位参数改为数字：`5` 精选、`4` 可用、`3` 记录、`1` 淘汰、`0` 无鸟。功能规则与质量分区间保持不变。
     - 前端：
-      - `src/web/templates/select.html` 在筛选栏新增等级按钮组：全部 / 精选 / 可用 / 记录 / 淘汰 / 无鸟；当前选中等级高亮；链接保留 `outing_id` 和 `date` 参数。
+      - `src/web/templates/select.html` 将筛选按钮改为星级样式：🌟🌟🌟🌟🌟 精选、🌟🌟🌟🌟 可用、🌟🌟🌟 记录、❌ 淘汰、🚫 无鸟；当前选中星级高亮。
     - 测试：
-      - 在 `tests/test_web_three_domain.py` 新增 `test_select_page_filters_by_rating`：覆盖五个等级的过滤结果与当前等级上下文。
-      - 更新 `test_select_page_renders_template` 断言包含 `current_rating`。
+      - 更新 `tests/test_web_three_domain.py` 的 `test_select_page_filters_by_rating`：使用 `5`/`4`/`3`/`1`/`0` 参数验证五档过滤结果与当前星级上下文。
     - 验证：
       - 完整测试套件：`344 passed, 1 skipped`。
 

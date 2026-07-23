@@ -741,15 +741,19 @@ class CorrectSpeciesRequest(BaseModel):
 
 # --- Three-domain web routes ---
 def _apply_rating_filter(query, rating: str):
-    """Apply tier filtering to the SQLAlchemy Photo query."""
-    if rating == "best":
+    """Apply tier filtering to the SQLAlchemy Photo query.
+
+    The filter maps to a 5-star Lightroom-style rating:
+    5-star = best, 4-star = usable, 3-star = record, 1-star = rejected, no-bird = 0-star.
+    """
+    if rating == "5":
         query = query.filter(
             Photo.primary_bird_cn.isnot(None),
             Photo.primary_bird_cn != "",
             Photo.quality_score >= 80,
             (Photo.rating.is_(None)) | (Photo.rating != -1),
         )
-    elif rating == "usable":
+    elif rating == "4":
         query = query.filter(
             Photo.primary_bird_cn.isnot(None),
             Photo.primary_bird_cn != "",
@@ -757,16 +761,16 @@ def _apply_rating_filter(query, rating: str):
             Photo.quality_score < 80,
             (Photo.rating.is_(None)) | (Photo.rating != -1),
         )
-    elif rating == "record":
+    elif rating == "3":
         query = query.filter(
             Photo.primary_bird_cn.isnot(None),
             Photo.primary_bird_cn != "",
             Photo.quality_score < 50,
             (Photo.rating.is_(None)) | (Photo.rating != -1),
         )
-    elif rating == "rejected":
+    elif rating == "1":
         query = query.filter(Photo.rating == -1)
-    elif rating == "no-bird":
+    elif rating == "0":
         query = query.filter(
             (Photo.primary_bird_cn.is_(None)) | (Photo.primary_bird_cn == "")
         )

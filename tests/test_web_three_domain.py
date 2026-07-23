@@ -65,35 +65,35 @@ def test_select_page_filters_by_rating(tmp_path, monkeypatch):
     db_path = _create_temp_db(tmp_path)
     monkeypatch.setattr(web_app, "db_path", Path(db_path))
     session, _ = _create_session(db_path)
-    session.add(Photo(file_path="best.jpg", filename="best.jpg", captured_date="2026-07-20", primary_bird_cn="麻雀", quality_score=85))
-    session.add(Photo(file_path="usable.jpg", filename="usable.jpg", captured_date="2026-07-20", primary_bird_cn="麻雀", quality_score=65))
-    session.add(Photo(file_path="record.jpg", filename="record.jpg", captured_date="2026-07-20", primary_bird_cn="麻雀", quality_score=30))
-    session.add(Photo(file_path="rejected.jpg", filename="rejected.jpg", captured_date="2026-07-20", primary_bird_cn="麻雀", quality_score=90, rating=-1))
-    session.add(Photo(file_path="no_bird.jpg", filename="no_bird.jpg", captured_date="2026-07-20", primary_bird_cn="", quality_score=70))
+    session.add(Photo(file_path="five.jpg", filename="five.jpg", captured_date="2026-07-20", primary_bird_cn="麻雀", quality_score=85))
+    session.add(Photo(file_path="four.jpg", filename="four.jpg", captured_date="2026-07-20", primary_bird_cn="麻雀", quality_score=65))
+    session.add(Photo(file_path="three.jpg", filename="three.jpg", captured_date="2026-07-20", primary_bird_cn="麻雀", quality_score=30))
+    session.add(Photo(file_path="one.jpg", filename="one.jpg", captured_date="2026-07-20", primary_bird_cn="麻雀", quality_score=90, rating=-1))
+    session.add(Photo(file_path="zero.jpg", filename="zero.jpg", captured_date="2026-07-20", primary_bird_cn="", quality_score=70))
     session.commit()
     session.close()
 
     templates = TemplateRecorder()
     monkeypatch.setattr(web_app, "templates", templates)
 
-    web_app.select_page(request=object(), date="", rating="best")
+    web_app.select_page(request=object(), date="", rating="5")
     assert len(templates.calls[-1]["context"]["groups"]) == 1
     assert templates.calls[-1]["context"]["groups"][0]["photos"][0]["id"] == 1
-    assert templates.calls[-1]["context"]["current_rating"] == "best"
+    assert templates.calls[-1]["context"]["current_rating"] == "5"
 
-    web_app.select_page(request=object(), date="", rating="usable")
+    web_app.select_page(request=object(), date="", rating="4")
     assert len(templates.calls[-1]["context"]["groups"]) == 1
     assert templates.calls[-1]["context"]["groups"][0]["photos"][0]["id"] == 2
 
-    web_app.select_page(request=object(), date="", rating="record")
+    web_app.select_page(request=object(), date="", rating="3")
     assert len(templates.calls[-1]["context"]["groups"]) == 1
     assert templates.calls[-1]["context"]["groups"][0]["photos"][0]["id"] == 3
 
-    web_app.select_page(request=object(), date="", rating="rejected")
+    web_app.select_page(request=object(), date="", rating="1")
     assert len(templates.calls[-1]["context"]["groups"]) == 1
     assert templates.calls[-1]["context"]["groups"][0]["photos"][0]["id"] == 4
 
-    web_app.select_page(request=object(), date="", rating="no-bird")
+    web_app.select_page(request=object(), date="", rating="0")
     assert len(templates.calls[-1]["context"]["groups"]) == 1
     assert templates.calls[-1]["context"]["groups"][0]["photos"][0]["id"] == 5
 
