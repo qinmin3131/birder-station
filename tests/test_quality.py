@@ -31,6 +31,19 @@ class TestQualityScorer:
         assert subject_size == pytest.approx(0.25, abs=1e-6)
         assert 0 <= subject_size <= 1
 
+    def test_iso_score_boundary(self, scorer):
+        assert scorer.calculate_iso_score(200) == 1.0
+        assert scorer.calculate_iso_score(800) == pytest.approx(0.85, abs=1e-6)
+        assert scorer.calculate_iso_score(3200) == pytest.approx(0.60, abs=1e-6)
+        assert scorer.calculate_iso_score(12800) == pytest.approx(0.30, abs=1e-6)
+        assert scorer.calculate_iso_score(25600) == 0.0
+        assert scorer.calculate_iso_score(None) == 1.0
+
+    def test_iso_score_linear_interpolation(self, scorer):
+        assert scorer.calculate_iso_score(500) == pytest.approx(0.925, abs=1e-6)
+        assert scorer.calculate_iso_score(2000) == pytest.approx(0.725, abs=1e-6)
+        assert scorer.calculate_iso_score(8000) == pytest.approx(0.45, abs=1e-6)
+
     def test_subject_size_returns_zero_for_invalid_bbox(self, scorer, sample_image):
         assert scorer.calculate_subject_size_score(sample_image.shape, (0, 0, 0, 0)) == 0.0
         assert scorer.calculate_subject_size_score(sample_image.shape, (0, 0, -1, 10)) == 0.0
@@ -40,13 +53,21 @@ class TestQualityScorer:
         assert "score" in result
         assert "details" in result
         assert set(result["details"].keys()) == {
-            "clarity", "contrast", "exposure", "subject_size"
+            "clarity", "contrast", "exposure", "subject_size", "iso"
         }
         assert 0 <= result["score"] <= 100
         assert result["details"]["subject_size"] == pytest.approx(0.25, abs=1e-6)
+        assert result["details"]["iso"] == 1.0
+
+    def test_calculate_quality_score_with_high_iso(self, scorer, sample_image):
+        result = scorer.calculate_quality_score(sample_image, (50, 25, 100, 50), iso=3200)
+        assert result["details"]["iso"] == pytest.approx(0.60, abs=1e-6)
 
     def test_calculate_quality_score_with_weights(self, scorer, sample_image):
-        weights = {"clarity": 0.4, "contrast": 0.0, "exposure": 0.0, "subject_size": 0.6}
+        weights = {
+            "clarity": 0.4, "contrast": 0.0, "exposure": 0.0,
+            "subject_size": 0.5, "iso": 0.1
+        }
         scorer = QualityScorer(weights=weights)
         result = scorer.calculate_quality_score(sample_image, (50, 25, 100, 50))
         assert 0 <= result["score"] <= 100
@@ -56,5 +77,15 @@ class TestQualityScorer:
         img_path = tmp_path / "test.jpg"
         cv2.imwrite(str(img_path), np.ones((200, 400, 3), dtype=np.uint8) * 128)
         result = scorer.score_from_path(str(img_path), (100, 50, 200, 100))
-        assert set(result["details"].keys()) == {"clarity", "contrast", "exposure", "subject_size"}
+        assert set(result["details"].keys()) == {
+            "clarity", "contrast", "exposure", "subject_size", "iso"
+        }
         assert result["details"]["subject_size"] == pytest.approx(0.25, abs=1e-6)
+        assert result["details"]["iso"] == 1.0
+
+    def test_score_from_path_with_iso(self, scorer, tmp_path):
+        import cv2
+        img_path = tmp_path / "test.jpg"
+        cv2.imwrite(str(img_path), np.ones((200, 400, 3), dtype=np.uint8) * 128)
+        result = scorer.score_from_path(str(img_path), (100, 50, 200, 100), iso=800)
+        assert result["details"]["iso"] == pytest.approx(0.85, abs=1e-6)

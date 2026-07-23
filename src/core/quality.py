@@ -38,17 +38,18 @@ class QualityChecker:
 
 
 class QualityScorer:
-    """4 维加权画质评分器。
+    """5 维加权画质评分器。
 
-    维度：清晰度、对比度、曝光、主体占比。所有分数均不依赖 EXIF 或
-    鸟类姿态关键点，仅基于图像统计与鸟框几何。
+    维度：清晰度、对比度、曝光、主体占比、ISO/噪点。所有分数均基于
+    图像统计、鸟框几何或 EXIF 元数据。
     """
 
     DEFAULT_WEIGHTS: Dict[str, float] = {
-        "clarity": 0.35,
+        "clarity": 0.30,
         "contrast": 0.20,
         "exposure": 0.20,
-        "subject_size": 0.25,
+        "subject_size": 0.20,
+        "iso": 0.10,
     }
 
     _CLARITY_NORMALIZER = 500.0
@@ -64,6 +65,29 @@ class QualityScorer:
         if image.ndim == 3:
             return cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
         return image
+
+    @staticmethod
+    def calculate_iso_score(iso: Optional[int]) -> float:
+        """根据 ISO 分段线性计算噪点惩罚得分,越高越好。
+
+        分段:
+        - ≤ 200: 100
+        - 200–800: 线性降到 85
+        - 800–3200: 线性降到 60
+        - 3200–12800: 线性降到 30
+        - ≥ 12800: 0
+        """
+        if iso is None or iso <= 0:
+            return 1.0
+        if iso <= 200:
+            return 1.0
+        if iso <= 800:
+            return 1.0 - (iso - 200) / 600 * 0.15
+        if iso <= 3200:
+            return 0.85 - (iso - 800) / 2400 * 0.25
+        if iso <= 12800:
+            return 0.60 - (iso - 3200) / 9600 * 0.30
+        return 0.0
 
     def calculate_clarity(self, image: np.ndarray) -> float:
         """Laplacian 方差归一化到 0-1,越高越清晰。"""
@@ -82,7 +106,7 @@ class QualityScorer:
         image_shape: Tuple[int, ...],
         bird_bbox: Tuple[int, int, int, int],
     ) -> float:
-        """鸟占画面的比例，越大说明鸟越近/越突出，归一化到 0-1。"""
+        """鸟占画面的比例,越大说明鸟越近/越突出,归一化到 0-1。"""
         h, w = image_shape[:2]
         if w <= 0 or h <= 0:
             return 0.0
@@ -111,8 +135,9 @@ class QualityScorer:
         self,
         image: np.ndarray,
         bird_bbox: Tuple[int, int, int, int],
+        iso: Optional[int] = None,
     ) -> Dict:
-        """计算 4 维加权综合画质评分。
+        """计算 5 维加权综合画质评分。
 
         Returns:
             ``{"score": int 0-100, "details": {dim: float 0-1, ...}}``
@@ -122,16 +147,22 @@ class QualityScorer:
             "contrast": self.calculate_contrast(image),
             "exposure": self.calculate_exposure(image),
             "subject_size": self.calculate_subject_size_score(image.shape, bird_bbox),
+            "iso": self.calculate_iso_score(iso),
         }
         weighted = sum(details[dim] * self.weights[dim] for dim in self.weights)
         return {"score": int(round(weighted * 100)), "details": details}
 
-    def score_from_path(self, image_path: str, bird_bbox: Tuple[int, int, int, int]) -> Dict:
-        """从图像路径和鸟框计算 4 维画质评分。"""
+    def score_from_path(
+        self,
+        image_path: str,
+        bird_bbox: Tuple[int, int, int, int],
+        iso: Optional[int] = None,
+    ) -> Dict:
+        """从图像路径和鸟框计算 5 维画质评分。"""
         image = cv2.imread(image_path)
         if image is None:
             logging.error(f"Could not read image for quality scoring: {image_path}")
             return {"score": 0, "details": {dim: 0.0 for dim in self.DEFAULT_WEIGHTS}}
 
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        return self.calculate_quality_score(image, bird_bbox)
+        return self.calculate_quality_score(image, bird_bbox, iso=iso)

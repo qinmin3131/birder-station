@@ -428,6 +428,24 @@
       - 更新 `tests/test_web_review.py`：移除 `FakeFocusParser` mock 与 `af_points` 断言；质量分项用 exposure 替代 focus。
     - 验证：
       - 完整测试套件：`331 passed, 1 skipped`。
+    - 提交 `5adc2e2`：功能: 简化画质评分为 4 维（清晰度/对比度/曝光/主体占比），移除 pose/bif/focus/position。
+
+24. **画质评分：加入 ISO/噪点维度**
+    - 需求：用户希望 ISO 过高时扣分，权重 10%。
+    - 后端：
+      - `src/core/quality.py`：
+        - 新增 `calculate_iso_score()`，按用户指定分段线性计算 ISO 得分：≤200 为 100，200–800 线性降到 85，800–3200 线性降到 60，3200–12800 线性降到 30，≥12800 为 0；缺失/无效 ISO 默认 100 分。
+        - `calculate_quality_score()` 与 `score_from_path()` 增加可选 `iso` 参数。
+        - 默认权重改为 5 维：clarity 0.30、contrast 0.20、exposure 0.20、subject_size 0.20、iso 0.10。
+    - 配置：
+      - `config/settings.yaml`、`config/settings.example.yaml`、`config/settings.test_pipeline.yaml`：更新 `quality` 权重为 5 维。
+    - 前端：
+      - `src/web/templates/select.html` 与 `gallery.html`：质量分项名称映射增加 `iso: 'ISO/噪点'`。
+    - 测试：
+      - 更新 `tests/test_quality.py`：新增 ISO 边界、分段插值、含 ISO 的评分测试；更新 5 维断言。
+      - 更新 `tests/test_quality_helpers.py`：验证 5 维与 `iso` 参数透传。
+    - 验证：
+      - 完整测试套件：`336 passed, 1 skipped`。
 
 ### 待处理
 - 无。

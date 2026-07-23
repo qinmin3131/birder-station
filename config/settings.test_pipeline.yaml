@@ -38,10 +38,11 @@ metadata:
   generate_xmp_sidecar: true
 quality:
   weights:
-    clarity: 0.35
+    clarity: 0.30
     contrast: 0.20
     exposure: 0.20
-    subject_size: 0.25
+    subject_size: 0.20
+    iso: 0.10
   pose_upgrade_threshold:
     head_eye_visible: true
 grouper:

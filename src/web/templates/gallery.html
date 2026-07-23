@@ -407,7 +407,7 @@
             const qd = data.quality_details || {};
             const qdContainer = document.getElementById('photoDetailQualityDetails');
             qdContainer.innerHTML = '';
-            const qdNames = {clarity: '清晰度', contrast: '对比度', exposure: '曝光', subject_size: '主体占比'};
+            const qdNames = {clarity: '清晰度', contrast: '对比度', exposure: '曝光', subject_size: '主体占比', iso: 'ISO/噪点'};
             Object.keys(qdNames).forEach(key => {
                 if (key in qd) {
                     const score = qd[key];
