@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from urllib.parse import urlencode
 from fastapi import FastAPI, Request, HTTPException, WebSocket, Query
-from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.responses import HTMLResponse, FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
@@ -1101,7 +1101,7 @@ def _get_review_neighbors(session, photo: Photo) -> tuple[Optional[int], Optiona
 
 @app.get("/api/photo/{photo_id}/preview")
 def get_photo_preview(photo_id: int):
-    """Return a JPEG preview of the photo. For RAW files, a temporary decoded JPEG is generated."""
+    """Return a JPEG preview of the photo. For RAW files, a temporary decoded JPEG is generated and removed after serving."""
     session = get_sqlalchemy_session()
     try:
         photo = session.query(Photo).filter(Photo.id == photo_id).first()
@@ -1114,7 +1114,15 @@ def get_photo_preview(photo_id: int):
 
         if ImageProcessor.is_raw(original_path):
             tmp_path = ImageProcessor.decode_raw_to_temp_jpg(original_path)
-            return FileResponse(tmp_path, media_type="image/jpeg")
+            try:
+                with open(tmp_path, "rb") as f:
+                    data = f.read()
+            finally:
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
+            return StreamingResponse(iter([data]), media_type="image/jpeg")
         return FileResponse(original_path)
     except HTTPException:
         raise

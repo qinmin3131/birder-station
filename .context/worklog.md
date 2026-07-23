@@ -325,3 +325,17 @@
       - 在 `tests/test_web_review.py` 新增 `test_review_returns_neighbor_ids_within_group`：验证同组照片的前/后导航 ID 边界。
     - 验证：
       - 完整测试套件：`344 passed, 1 skipped`。
+
+17. **RAW / ORF 预览色差修复**
+    - 需求：用户反馈 ORF 原图在预览页/截图与原图有色差。
+    - 根因：原 `ImageProcessor.decode_raw_to_temp_jpg()` 使用 `rawpy.postprocess()` 默认输出，未显式指定色彩空间和 gamma，且未嵌入 ICC profile，导致浏览器按默认 sRGB 解析时颜色偏；`preview` 路由生成的临时文件也未清理。
+    - 后端：
+      - `src/core/processor.py` 重构 `decode_raw_to_temp_jpg()`：
+        - 优先调用 `rawpy.extract_thumb()` 提取相机内嵌 JPEG 预览（色彩与相机直出 JPEG 最接近）。
+        - 内嵌预览不可用时回退到 `rawpy.postprocess()`，显式指定 `output_color=rawpy.ColorSpace.sRGB`、`gamma=(2.222, 4.5)`、关闭自动亮度，并嵌入标准 sRGB ICC profile。
+        - 新增 `_embed_srgb_icc()` 辅助函数，使用 Pillow `ImageCms` 生成 sRGB profile 并写入图片信息。
+      - `src/web/app.py` 的 `GET /api/photo/{photo_id}/preview` 对 RAW 解码后的临时 JPEG 读入内存后删除，避免临时文件堆积；同时引入 `StreamingResponse` 返回。
+    - 测试：
+      - 保留 `tests/test_web_review.py` 中 `test_preview_decodes_raw_to_temp_jpg` 与 `test_preview_returns_jpeg_for_existing_jpg` 验证预览接口返回正常。
+    - 验证：
+      - 完整测试套件：`344 passed, 1 skipped`。
