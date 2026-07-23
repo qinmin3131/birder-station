@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from pathlib import Path
 from unittest.mock import ANY
 
@@ -7,7 +9,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from src.db.models import Base, Photo
+from src.db.models import Base, Photo, PhotoGroup
 from src.web import app as web_app
 
 
@@ -99,7 +101,56 @@ def test_review_returns_photo_metadata(client, sample_jpg, monkeypatch):
     assert data["af_points"] == [[123, 456]]
 
 
-def test_review_returns_404_when_photo_missing(client):
+def test_review_returns_neighbor_ids_within_group(client, sample_jpg, monkeypatch):
+    session = web_app.get_sqlalchemy_session()
+    g1 = PhotoGroup(
+        outing_id=1,
+        best_photo_id=0,
+        created_at=datetime(2026, 7, 20, 8, 0, 0),
+    )
+    session.add(g1)
+    session.commit()
+    session.refresh(g1)
+
+    p1 = _create_photo(
+        session,
+        original_path=str(sample_jpg),
+        filename="a.jpg",
+        captured_at=datetime(2026, 7, 20, 8, 0, 1),
+        group_id=g1.id,
+    )
+    p2 = _create_photo(
+        session,
+        original_path=str(sample_jpg),
+        filename="b.jpg",
+        captured_at=datetime(2026, 7, 20, 8, 0, 2),
+        group_id=g1.id,
+    )
+    p3 = _create_photo(
+        session,
+        original_path=str(sample_jpg),
+        filename="c.jpg",
+        captured_at=datetime(2026, 7, 20, 8, 0, 3),
+        group_id=g1.id,
+    )
+    p1_id = p1.id
+    p2_id = p2.id
+    p3_id = p3.id
+    session.close()
+
+    data = client.get(f"/api/photo/{p2_id}/review").json()
+    assert data["prev_photo_id"] == p1_id
+    assert data["next_photo_id"] == p3_id
+
+    data_first = client.get(f"/api/photo/{p1_id}/review").json()
+    assert data_first["prev_photo_id"] is None
+    assert data_first["next_photo_id"] == p2_id
+
+    data_last = client.get(f"/api/photo/{p3_id}/review").json()
+    assert data_last["prev_photo_id"] == p2_id
+    assert data_last["next_photo_id"] is None
+
+
     response = client.get("/api/photo/9999/review")
     assert response.status_code == 404
     assert "Photo not found" in response.json()["detail"]

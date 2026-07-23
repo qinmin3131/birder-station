@@ -310,5 +310,18 @@
       - 完整测试套件：`344 passed, 1 skipped`。
 
 ### 待处理
-- [ ] IQA 裁切预览 / 全屏大图（`spec.md` §5.4）
 - [ ] 选片键盘快捷键 / 连拍组快速审阅（`spec.md` §5.5）
+
+16. **选片深度复核（IQA 全屏预览 / 缩放 / 组内切换）**
+    - 需求：`spec.md` §5.3 步骤三要求组内复核大字预览、叠加检测框/AF点/姿态关键点，并支持左右键切换；§3.2 深度复核界面要求原图舞台、IQA 裁切预览、倍率缩放和全屏查看。
+    - 后端：
+      - `src/web/app.py` 的 `GET /api/photo/{photo_id}/review` 返回新增 `prev_photo_id` 与 `next_photo_id`，支持组内或同日期相邻照片切换；新增 `_get_review_neighbors()` 辅助函数按 `group_id` 或 `captured_date` 排序计算前后照片。
+    - 前端：
+      - `src/web/templates/select.html` 将复核弹窗 `reviewModal` 改为 `modal-fullscreen` 全屏舞台，背景深色，左侧大图区、右侧信息面板。
+      - 新增图片缩放/平移：鼠标滚轮缩放、鼠标拖拽平移、底部工具栏 +/- 按钮、适应窗口按钮、全屏按钮；缩放状态通过 CSS transform 实时应用。
+      - 新增左右导航箭头与键盘快捷键：⬅️/➡️ 切换组内照片，ESC 关闭弹窗。
+      - 信息面板显示文件名、日期、地点、分辨率、星级/淘汰状态，并保留识别结果、质量分项、候选 Top 5、选中/淘汰/写入元数据操作。
+    - 测试：
+      - 在 `tests/test_web_review.py` 新增 `test_review_returns_neighbor_ids_within_group`：验证同组照片的前/后导航 ID 边界。
+    - 验证：
+      - 完整测试套件：`344 passed, 1 skipped`。

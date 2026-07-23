@@ -20,6 +20,20 @@
         .group-header { background: #f8f9fa; border-left: 4px solid #0d6efd; padding: 8px 12px; margin: 16px 0 8px; border-radius: 4px; }
         .score-bar { height: 4px; border-radius: 2px; background: #e9ecef; margin-top: 4px; overflow: hidden; }
         .score-fill { height: 100%; background: linear-gradient(90deg, #dc3545, #ffc107, #198754); }
+        #reviewStage { background: #000; overflow: hidden; cursor: grab; position: relative; }
+        #reviewStage:active { cursor: grabbing; }
+        #reviewCanvas { display: block; max-width: none; transform-origin: 0 0; }
+        .review-toolbar { position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%); z-index: 10; }
+        .nav-arrow {
+            position: absolute; top: 50%; transform: translateY(-50%);
+            width: 48px; height: 48px; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            background: rgba(0,0,0,0.5); color: #fff; border: none; cursor: pointer; z-index: 10;
+        }
+        .nav-arrow:hover { background: rgba(0,0,0,0.7); }
+        .nav-arrow.prev { left: 16px; }
+        .nav-arrow.next { right: 16px; }
+        .nav-arrow:disabled { opacity: 0.3; cursor: not-allowed; }
     </style>
 </head>
 <body>
@@ -157,52 +171,60 @@
         {% endfor %}
     </div>
 
-    <div class="modal fade" id="reviewModal" tabindex="-1" aria-hidden="true">
-        <div class="modal-dialog modal-xl modal-dialog-centered" id="reviewDialog">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title" id="reviewTitle">照片复核</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+    <div class="modal fade" id="reviewModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static">
+        <div class="modal-dialog modal-fullscreen modal-dialog-centered" id="reviewDialog">
+            <div class="modal-content" style="background: #111;">
+                <div class="modal-header border-secondary" style="padding: 0.5rem 1rem;">
+                    <div class="d-flex align-items-center gap-3 text-white">
+                        <h5 class="modal-title mb-0" id="reviewTitle">照片复核</h5>
+                        <span class="small text-white-50" id="reviewMetaLine"></span>
+                    </div>
+                    <div class="d-flex align-items-center gap-2">
+                        <button class="btn btn-sm btn-outline-light" onclick="resetZoom()"><i class="bi bi-fullscreen"></i> 适应窗口</button>
+                        <button class="btn btn-sm btn-outline-light" onclick="toggleFullscreen()"><i class="bi bi-arrows-fullscreen"></i> 全屏</button>
+                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
                 </div>
-                <div class="modal-body">
-                    <div class="row">
-                        <div class="col-lg-9 col-md-8 mb-3">
-                            <div class="position-relative" id="reviewImageWrapper">
-                                <img id="reviewImage" src="" class="img-fluid rounded" style="display: none;">
-                                <canvas id="reviewCanvas" class="rounded border" style="max-width: 100%; height: auto; display: block;"></canvas>
-                            </div>
-                            <div class="mt-2 text-muted small" id="reviewImageInfo"></div>
+                <div class="modal-body p-0" style="display: flex; height: calc(100vh - 56px);">
+                    <div class="flex-grow-1 position-relative" id="reviewStage">
+                        <canvas id="reviewCanvas" class="rounded-0"></canvas>
+                        <button id="prevPhotoBtn" class="nav-arrow prev" onclick="goPrevPhoto()"><i class="bi bi-chevron-left"></i></button>
+                        <button id="nextPhotoBtn" class="nav-arrow next" onclick="goNextPhoto()"><i class="bi bi-chevron-right"></i></button>
+                        <div class="review-toolbar btn-group btn-group-sm">
+                            <button class="btn btn-dark" onclick="zoomBy(-0.2)"><i class="bi bi-zoom-out"></i></button>
+                            <button class="btn btn-dark" disabled><span id="zoomLabel">100%</span></button>
+                            <button class="btn btn-dark" onclick="zoomBy(0.2)"><i class="bi bi-zoom-in"></i></button>
                         </div>
-                        <div class="col-lg-3 col-md-4">
-                            <div class="card">
-                                <div class="card-body">
-                                    <h6 class="card-subtitle mb-2 text-muted">识别结果</h6>
-                                    <h4 id="reviewBirdName" class="card-title">--</h4>
-                                    <p class="mb-1">
-                                        <span class="text-muted">学名：</span>
-                                        <span id="reviewSciName">--</span>
-                                    </p>
-                                    <p class="mb-1">
-                                        <span class="text-muted">置信度：</span>
-                                        <span id="reviewConfidence">--</span>
-                                    </p>
-                                    <p class="mb-1">
-                                        <span class="text-muted">质量总分：</span>
-                                        <span id="reviewQualityScore">--</span>
-                                    </p>
-                                    <hr>
-                                    <h6 class="card-subtitle mb-2 text-muted">质量分项</h6>
-                                    <div id="reviewQualityDetails"></div>
-                                    <hr>
-                                    <h6 class="card-subtitle mb-2 text-muted">候选结果 Top 5</h6>
-                                    <ul class="list-group list-group-flush small" id="reviewCandidates"></ul>
-                                    <hr>
-                                    <h6 class="card-subtitle mb-2 text-muted">操作</h6>
-                                    <div class="d-grid gap-2">
-                                        <button class="btn btn-success btn-sm" id="reviewSelectBtn" onclick="reviewMark('select')">✅ 选中</button>
-                                        <button class="btn btn-danger btn-sm" id="reviewRejectBtn" onclick="reviewMark('reject')">❌ 淘汰</button>
-                                        <button class="btn btn-info btn-sm" id="reviewMetaBtn" onclick="reviewWriteMetadata()">💾 写入元数据</button>
-                                    </div>
+                    </div>
+                    <div style="width: 340px; flex-shrink: 0; overflow-y: auto; background: #1a1a1a; border-left: 1px solid #333;">
+                        <div class="card text-white bg-dark border-secondary m-3">
+                            <div class="card-body">
+                                <h6 class="card-subtitle mb-2 text-white-50">识别结果</h6>
+                                <h4 id="reviewBirdName" class="card-title">--</h4>
+                                <p class="mb-1">
+                                    <span class="text-white-50">学名：</span>
+                                    <span id="reviewSciName">--</span>
+                                </p>
+                                <p class="mb-1">
+                                    <span class="text-white-50">置信度：</span>
+                                    <span id="reviewConfidence">--</span>
+                                </p>
+                                <p class="mb-1">
+                                    <span class="text-white-50">质量总分：</span>
+                                    <span id="reviewQualityScore">--</span>
+                                </p>
+                                <hr class="border-secondary">
+                                <h6 class="card-subtitle mb-2 text-white-50">质量分项</h6>
+                                <div id="reviewQualityDetails"></div>
+                                <hr class="border-secondary">
+                                <h6 class="card-subtitle mb-2 text-white-50">候选结果 Top 5</h6>
+                                <ul class="list-group list-group-flush small bg-dark" id="reviewCandidates"></ul>
+                                <hr class="border-secondary">
+                                <h6 class="card-subtitle mb-2 text-white-50">操作</h6>
+                                <div class="d-grid gap-2">
+                                    <button class="btn btn-success btn-sm" id="reviewSelectBtn" onclick="reviewMark('select')">✅ 选中</button>
+                                    <button class="btn btn-danger btn-sm" id="reviewRejectBtn" onclick="reviewMark('reject')">❌ 淘汰</button>
+                                    <button class="btn btn-info btn-sm" id="reviewMetaBtn" onclick="reviewWriteMetadata()">💾 写入元数据</button>
                                 </div>
                             </div>
                         </div>
@@ -300,15 +322,35 @@
         }
 
         let currentReviewPhotoId = null;
+        let currentReviewData = null;
         let reviewModal = null;
+
+        let reviewScale = 1;
+        let reviewOffsetX = 0;
+        let reviewOffsetY = 0;
+        let isDragging = false;
+        let dragStartX = 0;
+        let dragStartY = 0;
+        let naturalWidth = 0;
+        let naturalHeight = 0;
 
         function openReview(photoId) {
             currentReviewPhotoId = photoId;
             if (!reviewModal) reviewModal = new bootstrap.Modal(document.getElementById('reviewModal'));
             reviewModal.show();
+            resetTransform();
+            loadReview(photoId);
+        }
+
+        function loadReview(photoId) {
+            currentReviewPhotoId = photoId;
+            resetTransform();
             fetch(`/api/photo/${photoId}/review`)
                 .then(r => r.json())
-                .then(data => renderReview(data))
+                .then(data => {
+                    currentReviewData = data;
+                    renderReview(data);
+                })
                 .catch(e => {
                     console.error(e);
                     alert('加载复核数据失败');
@@ -322,6 +364,9 @@
             document.getElementById('reviewSciName').textContent = photo.scientific_name || '--';
             document.getElementById('reviewConfidence').textContent = photo.confidence_score ? (photo.confidence_score * 100).toFixed(1) + '%' : '--';
             document.getElementById('reviewQualityScore').textContent = photo.quality_score || '--';
+
+            const stars = photo.rating === -1 ? '❌ 淘汰' : (photo.rating ? '⭐'.repeat(photo.rating) : '未评分');
+            document.getElementById('reviewMetaLine').textContent = `${photo.captured_date || ''} · ${photo.location_tag || ''} · ${photo.width || '?'}×${photo.height || '?'} · ${stars}`;
 
             const qd = data.quality_details || {};
             const qdContainer = document.getElementById('reviewQualityDetails');
@@ -350,45 +395,125 @@
             candList.innerHTML = '';
             (data.candidates || []).slice(0, 5).forEach(c => {
                 const li = document.createElement('li');
-                li.className = 'list-group-item d-flex justify-content-between align-items-center px-0';
+                li.className = 'list-group-item d-flex justify-content-between align-items-center px-0 bg-dark text-white border-secondary';
                 li.innerHTML = `<span>${c.cn || c.sci || '未知'}</span><span class="badge bg-secondary">${(c.score * 100).toFixed(1)}%</span>`;
                 candList.appendChild(li);
             });
 
-            const img = document.getElementById('reviewImage');
+            const prevBtn = document.getElementById('prevPhotoBtn');
+            const nextBtn = document.getElementById('nextPhotoBtn');
+            prevBtn.disabled = !data.prev_photo_id;
+            nextBtn.disabled = !data.next_photo_id;
+
+            resetButtons();
+
             const canvas = document.getElementById('reviewCanvas');
-            const info = document.getElementById('reviewImageInfo');
+            const img = new Image();
             img.src = `/api/photo/${photo.id}/preview`;
             img.onload = () => {
-                const w = img.naturalWidth;
-                const h = img.naturalHeight;
-                canvas.width = w;
-                canvas.height = h;
-                const ctx = canvas.getContext('2d');
-                ctx.drawImage(img, 0, 0);
+                naturalWidth = img.naturalWidth;
+                naturalHeight = img.naturalHeight;
+                canvas.width = naturalWidth;
+                canvas.height = naturalHeight;
+                drawCanvas(photo, data);
+                fitToWindow();
+            };
+        }
 
+        function drawCanvas(photo, data) {
+            const canvas = document.getElementById('reviewCanvas');
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            const img = new Image();
+            img.src = `/api/photo/${photo.id}/preview`;
+            img.onload = () => {
+                ctx.drawImage(img, 0, 0);
                 if (photo.bird_bbox && photo.bird_bbox.length === 4) {
                     const [x1, y1, x2, y2] = photo.bird_bbox;
                     ctx.strokeStyle = '#198754';
-                    ctx.lineWidth = Math.max(2, Math.round(w / 400));
+                    ctx.lineWidth = Math.max(2, Math.round(naturalWidth / 400));
                     ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
                     ctx.fillStyle = '#198754';
                     ctx.font = 'bold 14px sans-serif';
                     ctx.fillText('检测框', x1 + 4, y1 - 4);
                 }
-
                 (data.af_points || []).forEach(([x, y]) => {
                     ctx.beginPath();
-                    ctx.arc(x, y, Math.max(4, Math.round(w / 200)), 0, 2 * Math.PI);
+                    ctx.arc(x, y, Math.max(4, Math.round(naturalWidth / 200)), 0, 2 * Math.PI);
                     ctx.fillStyle = 'rgba(220, 53, 69, 0.6)';
                     ctx.fill();
                     ctx.strokeStyle = '#dc3545';
                     ctx.lineWidth = 2;
                     ctx.stroke();
                 });
-
-                info.textContent = `${w} × ${h} · AF点 ${(data.af_points || []).length} 个`;
             };
+        }
+
+        function applyTransform() {
+            const canvas = document.getElementById('reviewCanvas');
+            canvas.style.transform = `translate(${reviewOffsetX}px, ${reviewOffsetY}px) scale(${reviewScale})`;
+            document.getElementById('zoomLabel').textContent = `${Math.round(reviewScale * 100)}%`;
+        }
+
+        function resetTransform() {
+            reviewScale = 1;
+            reviewOffsetX = 0;
+            reviewOffsetY = 0;
+            applyTransform();
+        }
+
+        function zoomBy(delta) {
+            reviewScale = Math.max(0.2, Math.min(5, reviewScale + delta));
+            applyTransform();
+        }
+
+        function resetZoom() {
+            fitToWindow();
+        }
+
+        function fitToWindow() {
+            if (!naturalWidth || !naturalHeight) return;
+            const stage = document.getElementById('reviewStage');
+            const availW = stage.clientWidth;
+            const availH = stage.clientHeight;
+            reviewScale = Math.min(availW / naturalWidth, availH / naturalHeight, 1);
+            reviewOffsetX = (availW - naturalWidth * reviewScale) / 2;
+            reviewOffsetY = (availH - naturalHeight * reviewScale) / 2;
+            applyTransform();
+        }
+
+        function toggleFullscreen() {
+            const el = document.getElementById('reviewDialog');
+            if (!document.fullscreenElement) {
+                el.requestFullscreen().catch(e => console.error(e));
+            } else {
+                document.exitFullscreen();
+            }
+        }
+
+        function goPrevPhoto() {
+            if (currentReviewData && currentReviewData.prev_photo_id) {
+                loadReview(currentReviewData.prev_photo_id);
+            }
+        }
+
+        function goNextPhoto() {
+            if (currentReviewData && currentReviewData.next_photo_id) {
+                loadReview(currentReviewData.next_photo_id);
+            }
+        }
+
+        function resetButtons() {
+            const selectBtn = document.getElementById('reviewSelectBtn');
+            const rejectBtn = document.getElementById('reviewRejectBtn');
+            const metaBtn = document.getElementById('reviewMetaBtn');
+            selectBtn.classList.remove('disabled');
+            selectBtn.textContent = '✅ 选中';
+            rejectBtn.classList.remove('disabled');
+            rejectBtn.textContent = '❌ 淘汰';
+            metaBtn.classList.remove('btn-success', 'btn-danger');
+            metaBtn.classList.add('btn-info');
+            metaBtn.textContent = '💾 写入元数据';
         }
 
         function reviewMark(action) {
@@ -420,6 +545,39 @@
                     btn.textContent = '❌ 失败';
                 });
         }
+
+        const reviewStage = document.getElementById('reviewStage');
+        reviewStage.addEventListener('wheel', e => {
+            e.preventDefault();
+            zoomBy(e.deltaY > 0 ? -0.15 : 0.15);
+        }, { passive: false });
+
+        reviewStage.addEventListener('mousedown', e => {
+            isDragging = true;
+            dragStartX = e.clientX - reviewOffsetX;
+            dragStartY = e.clientY - reviewOffsetY;
+        });
+
+        window.addEventListener('mousemove', e => {
+            if (!isDragging) return;
+            reviewOffsetX = e.clientX - dragStartX;
+            reviewOffsetY = e.clientY - dragStartY;
+            applyTransform();
+        });
+
+        window.addEventListener('mouseup', () => isDragging = false);
+
+        document.getElementById('reviewModal').addEventListener('keydown', e => {
+            if (e.key === 'ArrowLeft') goPrevPhoto();
+            if (e.key === 'ArrowRight') goNextPhoto();
+            if (e.key === 'Escape') reviewModal.hide();
+        });
+
+        window.addEventListener('resize', () => {
+            if (reviewModal && document.getElementById('reviewModal').classList.contains('show')) {
+                fitToWindow();
+            }
+        });
     </script>
 </body>
 </html>

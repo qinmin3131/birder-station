@@ -1003,7 +1003,11 @@ def _resolve_original_path(photo: Photo) -> str:
 
 @app.get("/api/photo/{photo_id}/review")
 def get_photo_review(photo_id: int):
-    """Return full review details for a photo: metadata, candidates, quality details, AF points."""
+    """Return full review details for a photo: metadata, candidates, quality details, AF points.
+
+    Also returns the previous/next photo id within the same group (or same captured_date
+    if the photo is ungrouped) so the review UI can navigate with arrow keys.
+    """
     session = get_sqlalchemy_session()
     try:
         photo = session.query(Photo).filter(Photo.id == photo_id).first()
@@ -1031,6 +1035,8 @@ def get_photo_review(photo_id: int):
             except Exception:
                 pass
 
+        prev_photo_id, next_photo_id = _get_review_neighbors(session, photo)
+
         return {
             "photo": {
                 "id": photo.id,
@@ -1048,10 +1054,13 @@ def get_photo_review(photo_id: int):
                 "original_path": original_path,
                 "is_selected": photo.is_selected,
                 "rating": photo.rating,
+                "group_id": photo.group_id,
             },
             "candidates": candidates,
             "quality_details": quality_details,
             "af_points": af_points,
+            "prev_photo_id": prev_photo_id,
+            "next_photo_id": next_photo_id,
         }
     except HTTPException:
         raise
@@ -1060,6 +1069,34 @@ def get_photo_review(photo_id: int):
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         session.close()
+
+
+def _get_review_neighbors(session, photo: Photo) -> tuple[Optional[int], Optional[int]]:
+    """Return previous/next photo id within the same group or same captured_date."""
+    if photo.group_id:
+        siblings = (
+            session.query(Photo.id)
+            .filter(Photo.group_id == photo.group_id)
+            .order_by(Photo.captured_at.asc(), Photo.id.asc())
+            .all()
+        )
+    else:
+        siblings = (
+            session.query(Photo.id)
+            .filter(Photo.captured_date == photo.captured_date)
+            .order_by(Photo.captured_at.asc(), Photo.id.asc())
+            .all()
+        )
+    ids = [row[0] for row in siblings]
+    if not ids:
+        return None, None
+    try:
+        idx = ids.index(photo.id)
+    except ValueError:
+        return None, None
+    prev_id = ids[idx - 1] if idx > 0 else None
+    next_id = ids[idx + 1] if idx < len(ids) - 1 else None
+    return prev_id, next_id
 
 
 @app.get("/api/photo/{photo_id}/preview")
