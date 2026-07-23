@@ -1,7 +1,6 @@
 from datetime import datetime
-
 from pathlib import Path
-from unittest.mock import ANY
+from unittest.mock import ANY, patch
 
 import pytest
 from PIL import Image
@@ -77,7 +76,7 @@ def _create_photo(session, **kwargs):
     return photo
 
 
-def test_review_returns_photo_metadata(client, sample_jpg, monkeypatch):
+def test_review_returns_photo_metadata_and_exif_summary(client, sample_jpg, monkeypatch):
     session = web_app.get_sqlalchemy_session()
     photo = _create_photo(
         session,
@@ -88,7 +87,23 @@ def test_review_returns_photo_metadata(client, sample_jpg, monkeypatch):
     )
     session.close()
 
-    response = client.get(f"/api/photo/{photo.id}/review")
+    fake_exif = {
+        "camera_make": "OLYMPUS",
+        "camera_model": "OM-1",
+        "lens_model": "M.Zuiko 300mm",
+        "aperture": "F5.6",
+        "shutter_speed": "1/1000",
+        "iso": 800,
+        "focal_length": "300.0 mm",
+        "date_time_original": "2026:07:20 10:00:00",
+        "gps_latitude": "39.9",
+        "gps_longitude": "116.3",
+        "image_size": "800x600",
+        "file_size": sample_jpg.stat().st_size,
+        "raw": {},
+    }
+    with patch.object(web_app, "read_exif_summary", return_value=fake_exif):
+        response = client.get(f"/api/photo/{photo.id}/review")
     assert response.status_code == 200
 
     data = response.json()
@@ -99,6 +114,9 @@ def test_review_returns_photo_metadata(client, sample_jpg, monkeypatch):
     assert data["candidates"][0]["cn"] == "麻雀"
     assert data["quality_details"]["focus"] == 90
     assert data["af_points"] == [[123, 456]]
+    assert data["exif"]["camera_make"] == "OLYMPUS"
+    assert data["exif"]["iso"] == 800
+    assert data["exif"]["file_size"] == sample_jpg.stat().st_size
 
 
 def test_review_returns_neighbor_ids_within_group(client, sample_jpg, monkeypatch):

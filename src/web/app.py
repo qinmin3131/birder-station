@@ -23,7 +23,7 @@ sys.path.append(str(BASE_DIR))
 
 from src.core.focus import FocusParser
 from src.core.processor import ImageProcessor
-from src.metadata.exif_writer import ExifWriter, write_metadata_for_photo
+from src.metadata.exif_writer import ExifWriter, write_metadata_for_photo, read_exif_summary
 from src.utils.config_loader import load_config, validate_paths_config
 from src.core.io.path_generator import PathGenerator
 from src.core.indexer import PhotoIndexer
@@ -1089,10 +1089,13 @@ def get_photo_review(photo_id: int):
 
         prev_photo_id, next_photo_id = _get_review_neighbors(session, photo)
 
+        exif_summary = read_exif_summary(exif_writer, original_path)
+
         return {
             "photo": {
                 "id": photo.id,
                 "filename": photo.filename,
+                "file_path": photo.file_path,
                 "primary_bird_cn": photo.primary_bird_cn,
                 "scientific_name": photo.scientific_name,
                 "confidence_score": photo.confidence_score,
@@ -1103,6 +1106,11 @@ def get_photo_review(photo_id: int):
                 "captured_at": photo.captured_at.isoformat() if photo.captured_at else None,
                 "captured_date": photo.captured_date,
                 "location_tag": photo.location_tag,
+                "location_level1": photo.location_level1,
+                "location_level2": photo.location_level2,
+                "location_level3": photo.location_level3,
+                "latitude": photo.latitude,
+                "longitude": photo.longitude,
                 "original_path": original_path,
                 "is_selected": photo.is_selected,
                 "rating": photo.rating,
@@ -1111,6 +1119,7 @@ def get_photo_review(photo_id: int):
             "candidates": candidates,
             "quality_details": quality_details,
             "af_points": af_points,
+            "exif": exif_summary,
             "prev_photo_id": prev_photo_id,
             "next_photo_id": next_photo_id,
         }

@@ -355,6 +355,20 @@
     - 验证：
       - 完整测试套件：`345 passed, 1 skipped`。
 
+19. **图库照片详情 / EXIF 侧边栏**
+    - 需求：`spec.md` §5.4 要求图库点击照片用 Modal 查看大图，并展示 EXIF / IQA / 物种信息，可跳转到选片复核。
+    - 后端：
+      - `src/metadata/exif_writer.py` 新增 `read_exif_summary()`：使用 ExifTool 读取相机、镜头、光圈、快门、ISO、焦距、分辨率、文件大小、拍摄时间、GPS 等摘要，供详情面板展示。
+      - `src/web/app.py` 的 `GET /api/photo/{photo_id}/review` 在返回值中新增 `exif` 字段；同时补充 `photo` 对象中的 `width`、`height`、`latitude`、`longitude`、`original_path` 等字段供前端使用。
+    - 前端：
+      - `src/web/templates/gallery.html`：
+        - 照片卡片整体可点击，打开 `photoDetailModal` 全屏详情弹窗。
+        - 新增详情弹窗：左侧大图舞台支持鼠标滚轮缩放、拖拽平移、适应窗口/全屏、组内/相邻照片左右切换（箭头 + 键盘 ←/→）。
+        - 右侧信息面板：识别结果（鸟种、学名、置信度、质量总分）、EXIF 元数据表格（相机、型号、镜头、焦距、光圈、快门、ISO、尺寸、文件大小、拍摄时间、GPS、文件路径）、质量分项进度条（清晰度、对比度、构图位置、曝光、姿态、飞版、对焦）、候选 Top 5、原图/裁切图下载链接、跳转选片复核按钮。
+    - 测试：
+      - 更新 `tests/test_web_review.py` 的 `test_review_returns_photo_metadata_and_exif_summary`：mock `read_exif_summary` 返回固定摘要，验证 `exif` 字段与相机/ISO/文件大小等字段正确返回。
+    - 验证：
+      - 完整测试套件：`345 passed, 1 skipped`。
+
 ### 待处理
-- [ ] 图库：照片详情 / EXIF 侧边栏（`spec.md` §5.4）
 - [ ] 图库：批量导出 / 下载选中照片（`spec.md` §5.6）

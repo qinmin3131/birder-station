@@ -21,7 +21,21 @@
         .photo-grid .photo-card { min-width: 0; }
         @media (max-width: 991.98px) { .photo-grid { grid-template-columns: repeat(3, 1fr); } }
         @media (max-width: 767.98px) { .photo-grid { grid-template-columns: repeat(2, 1fr); } }
-        .status-bar { padding: 8px 12px; background: #f8f9fa; border-radius: 6px; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; }
+                .status-bar { padding: 8px 12px; background: #f8f9fa; border-radius: 6px; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; }
+        #photoDetailStage { background: #000; overflow: hidden; cursor: grab; position: relative; }
+        #photoDetailStage:active { cursor: grabbing; }
+        #photoDetailCanvas { display: block; max-width: none; transform-origin: 0 0; }
+        .review-toolbar { position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%); z-index: 10; }
+        .nav-arrow {
+            position: absolute; top: 50%; transform: translateY(-50%);
+            width: 48px; height: 48px; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            background: rgba(0,0,0,0.5); color: #fff; border: none; cursor: pointer; z-index: 10;
+        }
+        .nav-arrow:hover { background: rgba(0,0,0,0.7); }
+        .nav-arrow.prev { left: 16px; }
+        .nav-arrow.next { right: 16px; }
+        .nav-arrow:disabled { opacity: 0.3; cursor: not-allowed; }
     </style>
 </head>
 <body>
@@ -190,10 +204,10 @@
             {% set is_uncertain = (photo.primary_bird_cn == '待确认鸟种' or photo.scientific_name == 'Uncertain') %}
             {% set processed_path = photo.web_processed_path if photo.web_processed_path else '' %}
             {% set raw_path = photo.web_raw_path if photo.web_raw_path else '' %}
-            <div class="photo-card">
-                <div class="card h-100 shadow-sm {{ 'status-uncertain' if is_uncertain else '' }}">
+            <div class="photo-card" id="photo-card-{{ photo.id }}">
+                <div class="card h-100 shadow-sm {{ 'status-uncertain' if is_uncertain else '' }}" onclick="openPhotoDetail({{ photo.id }})" style="cursor: pointer;">
                     <div class="position-relative">
-                        <div class="btn-group btn-group-sm position-absolute top-0 start-0 m-1" style="z-index: 10;">
+                        <div class="btn-group btn-group-sm position-absolute top-0 start-0 m-1" style="z-index: 10;" onclick="event.stopPropagation();">
                             {% if processed_path %}<a href="{{ processed_path }}" download class="btn btn-dark btn-sm">裁切</a>{% endif %}
                             {% if raw_path %}<a href="{{ raw_path }}" download class="btn btn-dark btn-sm">原图</a>{% endif %}
                         </div>
@@ -220,6 +234,67 @@
                 </div>
             </div>
             {% endfor %}
+        </div>
+
+        <div class="modal fade" id="photoDetailModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static">
+            <div class="modal-dialog modal-fullscreen modal-dialog-centered" id="photoDetailDialog">
+                <div class="modal-content" style="background: #111;">
+                    <div class="modal-header border-secondary" style="padding: 0.5rem 1rem;">
+                        <div class="d-flex align-items-center gap-3 text-white">
+                            <h5 class="modal-title mb-0" id="photoDetailTitle">照片详情</h5>
+                            <span class="small text-white-50" id="photoDetailMetaLine"></span>
+                        </div>
+                        <div class="d-flex align-items-center gap-2">
+                            <a id="photoDetailReviewLink" href="/select" class="btn btn-sm btn-outline-info">跳转选片复核</a>
+                            <button class="btn btn-sm btn-outline-light" onclick="resetDetailZoom()"><i class="bi bi-fullscreen"></i> 适应窗口</button>
+                            <button class="btn btn-sm btn-outline-light" onclick="toggleDetailFullscreen()"><i class="bi bi-arrows-fullscreen"></i> 全屏</button>
+                            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                        </div>
+                    </div>
+                    <div class="modal-body p-0" style="display: flex; height: calc(100vh - 56px);">
+                        <div class="flex-grow-1 position-relative" id="photoDetailStage" style="overflow: hidden; cursor: grab; background: #000;">
+                            <canvas id="photoDetailCanvas" class="rounded-0" style="display: block; max-width: none; transform-origin: 0 0;"></canvas>
+                            <button id="photoDetailPrevBtn" class="nav-arrow prev" onclick="goDetailPrev()"><i class="bi bi-chevron-left"></i></button>
+                            <button id="photoDetailNextBtn" class="nav-arrow next" onclick="goDetailNext()"><i class="bi bi-chevron-right"></i></button>
+                            <div class="review-toolbar btn-group btn-group-sm">
+                                <button class="btn btn-dark" onclick="zoomDetailBy(-0.2)"><i class="bi bi-zoom-out"></i></button>
+                                <button class="btn btn-dark" disabled><span id="photoDetailZoomLabel">100%</span></button>
+                                <button class="btn btn-dark" onclick="zoomDetailBy(0.2)"><i class="bi bi-zoom-in"></i></button>
+                            </div>
+                        </div>
+                        <div style="width: 360px; flex-shrink: 0; overflow-y: auto; background: #1a1a1a; border-left: 1px solid #333;">
+                            <div class="card text-white bg-dark border-secondary m-3">
+                                <div class="card-body">
+                                    <h6 class="card-subtitle mb-2 text-white-50">识别结果</h6>
+                                    <h4 id="photoDetailBirdName" class="card-title">--</h4>
+                                    <p class="mb-1"><span class="text-white-50">学名：</span><span id="photoDetailSciName">--</span></p>
+                                    <p class="mb-1"><span class="text-white-50">置信度：</span><span id="photoDetailConfidence">--</span></p>
+                                    <p class="mb-1"><span class="text-white-50">质量总分：</span><span id="photoDetailQualityScore">--</span></p>
+                                    <hr class="border-secondary">
+                                    <h6 class="card-subtitle mb-2 text-white-50">EXIF / 元数据</h6>
+                                    <table class="table table-dark table-sm small mb-0">
+                                        <tbody id="photoDetailExifTable"></tbody>
+                                    </table>
+                                    <hr class="border-secondary">
+                                    <h6 class="card-subtitle mb-2 text-white-50">质量分项</h6>
+                                    <div id="photoDetailQualityDetails"></div>
+                                    <hr class="border-secondary">
+                                    <h6 class="card-subtitle mb-2 text-white-50">候选结果 Top 5</h6>
+                                    <ul class="list-group list-group-flush small bg-dark" id="photoDetailCandidates"></ul>
+                                    <hr class="border-secondary">
+                                    <div class="d-grid gap-2">
+                                        <a id="photoDetailRawDownload" href="#" class="btn btn-outline-light btn-sm" download>下载原图</a>
+                                        <a id="photoDetailProcessedDownload" href="#" class="btn btn-outline-light btn-sm" download>下载裁切图</a>
+                                    </div>
+                                    <div class="mt-3 small text-white-50">
+                                        快捷键：←/→ 切换照片 · 滚轮缩放 · 拖拽平移 · ESC 关闭
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <div class="d-flex justify-content-center mt-4 mb-5">
@@ -252,6 +327,278 @@
                     btn.textContent = '❌ 失败';
                 });
         }
+
+        // Photo detail modal logic
+        const galleryPhotos = {{ photos | tojson }};
+        let detailPhotoIndex = 0;
+        let detailCurrentData = null;
+        let detailModal = null;
+
+        let detailScale = 1;
+        let detailOffsetX = 0;
+        let detailOffsetY = 0;
+        let detailIsDragging = false;
+        let detailDragStartX = 0;
+        let detailDragStartY = 0;
+        let detailNaturalWidth = 0;
+        let detailNaturalHeight = 0;
+
+        function findPhotoIndex(photoId) {
+            return galleryPhotos.findIndex(p => p.id === photoId);
+        }
+
+        function openPhotoDetail(photoId) {
+            detailPhotoIndex = findPhotoIndex(photoId);
+            if (detailPhotoIndex < 0) detailPhotoIndex = 0;
+            if (!detailModal) detailModal = new bootstrap.Modal(document.getElementById('photoDetailModal'));
+            detailModal.show();
+            detailResetTransform();
+            loadPhotoDetail(photoId);
+        }
+
+        function loadPhotoDetail(photoId) {
+            detailResetTransform();
+            fetch(`/api/photo/${photoId}/review`)
+                .then(r => r.json())
+                .then(data => {
+                    detailCurrentData = data;
+                    renderPhotoDetail(data);
+                })
+                .catch(e => {
+                    console.error(e);
+                    alert('加载照片详情失败');
+                });
+        }
+
+        function formatBytes(bytes) {
+            if (!bytes) return '--';
+            if (bytes < 1024) return bytes + ' B';
+            if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+            return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
+        }
+
+        function renderPhotoDetail(data) {
+            const photo = data.photo;
+            document.getElementById('photoDetailTitle').textContent = `${photo.filename} · 照片详情`;
+
+            const stars = photo.rating === -1 ? '❌ 淘汰' : (photo.rating ? '⭐'.repeat(photo.rating) : '未评分');
+            document.getElementById('photoDetailMetaLine').textContent = `${photo.captured_date || ''} · ${photo.location_tag || ''} · ${photo.width || '?'}×${photo.height || '?'} · ${stars}`;
+
+            document.getElementById('photoDetailBirdName').textContent = photo.primary_bird_cn || '未识别';
+            document.getElementById('photoDetailSciName').textContent = photo.scientific_name || '--';
+            document.getElementById('photoDetailConfidence').textContent = photo.confidence_score ? (photo.confidence_score * 100).toFixed(1) + '%' : '--';
+            document.getElementById('photoDetailQualityScore').textContent = photo.quality_score || '--';
+
+            document.getElementById('photoDetailReviewLink').href = `/select?photo_id=${photo.id}`;
+            const rawPath = galleryPhotos[detailPhotoIndex]?.web_raw_path || '';
+            document.getElementById('photoDetailRawDownload').href = rawPath || '#';
+            document.getElementById('photoDetailRawDownload').style.display = rawPath ? 'block' : 'none';
+            const processedPath = galleryPhotos[detailPhotoIndex]?.web_processed_path || '';
+            document.getElementById('photoDetailProcessedDownload').href = processedPath || '#';
+            document.getElementById('photoDetailProcessedDownload').style.display = processedPath ? 'block' : 'none';
+
+            // EXIF table
+            const exif = data.exif || {};
+            const exifRows = [
+                ['相机', exif.camera_make || '--', '型号', exif.camera_model || '--'],
+                ['镜头', exif.lens_model || '--', '焦距', exif.focal_length || '--'],
+                ['光圈', exif.aperture || '--', '快门', exif.shutter_speed || '--'],
+                ['ISO', exif.iso || '--', '尺寸', exif.image_size || `${photo.width || '?'}×${photo.height || '?'}`],
+                ['文件大小', formatBytes(exif.file_size), '拍摄时间', exif.date_time_original || '--'],
+                ['GPS 纬度', exif.gps_latitude || '--', 'GPS 经度', exif.gps_longitude || '--'],
+                ['海拔', exif.gps_altitude || '--', '文件路径', photo.original_path || '--'],
+            ];
+            const tbody = document.getElementById('photoDetailExifTable');
+            tbody.innerHTML = '';
+            exifRows.forEach(([k1, v1, k2, v2]) => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `<td class="text-white-50" style="width: 18%;"
+>${k1}</td>
+                                <td style="word-break: break-all;"
+>${v1 || '--'}</td>
+                                <td class="text-white-50" style="width: 18%;"
+>${k2}</td>
+                                <td style="word-break: break-all;"
+>${v2 || '--'}</td>`;
+                tbody.appendChild(tr);
+            });
+
+            // Quality details
+            const qd = data.quality_details || {};
+            const qdContainer = document.getElementById('photoDetailQualityDetails');
+            qdContainer.innerHTML = '';
+            const qdNames = {clarity: '清晰度', contrast: '对比度', position: '构图位置', exposure: '曝光', pose: '姿态', bif: '飞版', focus: '对焦'};
+            Object.keys(qdNames).forEach(key => {
+                if (key in qd) {
+                    const score = qd[key];
+                    const pct = Math.max(0, Math.min(100, score * 100));
+                    const div = document.createElement('div');
+                    div.className = 'mb-2';
+                    div.innerHTML = `
+                        <div class="d-flex justify-content-between small">
+                            <span>${qdNames[key]}</span>
+                            <span>${pct.toFixed(1)}</span>
+                        </div>
+                        <div class="progress" style="height: 6px;">
+                            <div class="progress-bar" role="progressbar" style="width: ${pct}%"></div>
+                        </div>`;
+                    qdContainer.appendChild(div);
+                }
+            });
+
+            // Candidates
+            const candList = document.getElementById('photoDetailCandidates');
+            candList.innerHTML = '';
+            (data.candidates || []).slice(0, 5).forEach(c => {
+                const li = document.createElement('li');
+                li.className = 'list-group-item d-flex justify-content-between align-items-center px-0 bg-dark text-white border-secondary';
+                li.innerHTML = `<span>${c.cn || c.sci || '未知'}</span><span class="badge bg-secondary">${(c.score * 100).toFixed(1)}%</span>`;
+                candList.appendChild(li);
+            });
+
+            document.getElementById('photoDetailPrevBtn').disabled = !data.prev_photo_id;
+            document.getElementById('photoDetailNextBtn').disabled = !data.next_photo_id;
+
+            const canvas = document.getElementById('photoDetailCanvas');
+            const img = new Image();
+            img.src = `/api/photo/${photo.id}/preview`;
+            img.onload = () => {
+                detailNaturalWidth = img.naturalWidth;
+                detailNaturalHeight = img.naturalHeight;
+                canvas.width = detailNaturalWidth;
+                canvas.height = detailNaturalHeight;
+                drawPhotoDetailCanvas(photo, data);
+                detailFitToWindow();
+            };
+        }
+
+        function drawPhotoDetailCanvas(photo, data) {
+            const canvas = document.getElementById('photoDetailCanvas');
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            const img = new Image();
+            img.src = `/api/photo/${photo.id}/preview`;
+            img.onload = () => {
+                ctx.drawImage(img, 0, 0);
+                if (photo.bird_bbox && photo.bird_bbox.length === 4) {
+                    const [x1, y1, x2, y2] = photo.bird_bbox;
+                    ctx.strokeStyle = '#198754';
+                    ctx.lineWidth = Math.max(2, Math.round(detailNaturalWidth / 400));
+                    ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+                    ctx.fillStyle = '#198754';
+                    ctx.font = 'bold 14px sans-serif';
+                    ctx.fillText('检测框', x1 + 4, y1 - 4);
+                }
+                (data.af_points || []).forEach(([x, y]) => {
+                    ctx.beginPath();
+                    ctx.arc(x, y, Math.max(4, Math.round(detailNaturalWidth / 200)), 0, 2 * Math.PI);
+                    ctx.fillStyle = 'rgba(220, 53, 69, 0.6)';
+                    ctx.fill();
+                    ctx.strokeStyle = '#dc3545';
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+                });
+            };
+        }
+
+        function applyDetailTransform() {
+            const canvas = document.getElementById('photoDetailCanvas');
+            canvas.style.transform = `translate(${detailOffsetX}px, ${detailOffsetY}px) scale(${detailScale})`;
+            document.getElementById('photoDetailZoomLabel').textContent = `${Math.round(detailScale * 100)}%`;
+        }
+
+        function detailResetTransform() {
+            detailScale = 1;
+            detailOffsetX = 0;
+            detailOffsetY = 0;
+            applyDetailTransform();
+        }
+
+        function zoomDetailBy(delta) {
+            detailScale = Math.max(0.2, Math.min(5, detailScale + delta));
+            applyDetailTransform();
+        }
+
+        function resetDetailZoom() {
+            detailFitToWindow();
+        }
+
+        function detailFitToWindow() {
+            if (!detailNaturalWidth || !detailNaturalHeight) return;
+            const stage = document.getElementById('photoDetailStage');
+            const availW = stage.clientWidth;
+            const availH = stage.clientHeight;
+            detailScale = Math.min(availW / detailNaturalWidth, availH / detailNaturalHeight, 1);
+            detailOffsetX = (availW - detailNaturalWidth * detailScale) / 2;
+            detailOffsetY = (availH - detailNaturalHeight * detailScale) / 2;
+            applyDetailTransform();
+        }
+
+        function toggleDetailFullscreen() {
+            const el = document.getElementById('photoDetailDialog');
+            if (!document.fullscreenElement) {
+                el.requestFullscreen().catch(e => console.error(e));
+            } else {
+                document.exitFullscreen();
+            }
+        }
+
+        function goDetailPrev() {
+            if (detailCurrentData && detailCurrentData.prev_photo_id) {
+                detailPhotoIndex = findPhotoIndex(detailCurrentData.prev_photo_id);
+                loadPhotoDetail(detailCurrentData.prev_photo_id);
+            }
+        }
+
+        function goDetailNext() {
+            if (detailCurrentData && detailCurrentData.next_photo_id) {
+                detailPhotoIndex = findPhotoIndex(detailCurrentData.next_photo_id);
+                loadPhotoDetail(detailCurrentData.next_photo_id);
+            }
+        }
+
+        const detailStage = document.getElementById('photoDetailStage');
+        detailStage.addEventListener('wheel', e => {
+            e.preventDefault();
+            zoomDetailBy(e.deltaY > 0 ? -0.15 : 0.15);
+        }, { passive: false });
+
+        detailStage.addEventListener('mousedown', e => {
+            detailIsDragging = true;
+            detailDragStartX = e.clientX - detailOffsetX;
+            detailDragStartY = e.clientY - detailOffsetY;
+        });
+
+        window.addEventListener('mousemove', e => {
+            if (!detailIsDragging) return;
+            detailOffsetX = e.clientX - detailDragStartX;
+            detailOffsetY = e.clientY - detailDragStartY;
+            applyDetailTransform();
+        });
+
+        window.addEventListener('mouseup', () => detailIsDragging = false);
+
+        document.getElementById('photoDetailModal').addEventListener('keydown', e => {
+            switch (e.key) {
+                case 'ArrowLeft':
+                    e.preventDefault();
+                    goDetailPrev();
+                    break;
+                case 'ArrowRight':
+                    e.preventDefault();
+                    goDetailNext();
+                    break;
+                case 'Escape':
+                    detailModal.hide();
+                    break;
+            }
+        });
+
+        window.addEventListener('resize', () => {
+            if (detailModal && document.getElementById('photoDetailModal').classList.contains('show')) {
+                detailFitToWindow();
+            }
+        });
     </script>
 </body>
 </html>

@@ -273,6 +273,93 @@ def read_capture_datetime(exif_writer: ExifWriter, image_path: str) -> Optional[
     return None
 
 
+def read_exif_summary(exif_writer: ExifWriter, image_path: str) -> Dict[str, Any]:
+    """Read a concise set of EXIF metadata for display in the photo detail panel.
+
+    Returns common camera, lens, exposure, and GPS fields as a flat dict.
+    Missing values are returned as None or empty strings.
+    """
+    result: Dict[str, Any] = {
+        "camera_make": None,
+        "camera_model": None,
+        "lens_model": None,
+        "aperture": None,
+        "shutter_speed": None,
+        "iso": None,
+        "focal_length": None,
+        "date_time_original": None,
+        "gps_latitude": None,
+        "gps_longitude": None,
+        "gps_altitude": None,
+        "file_size": None,
+        "image_size": None,
+        "raw": {},
+    }
+    if not image_path or not os.path.exists(image_path):
+        return result
+
+    try:
+        st = os.stat(image_path)
+        result["file_size"] = st.st_size
+    except OSError:
+        pass
+
+    exiftool_cmd = exif_writer._resolve_exiftool()
+    if not exiftool_cmd:
+        return result
+
+    tags = [
+        "Make",
+        "Model",
+        "LensModel",
+        "Lens",
+        "Aperture",
+        "FNumber",
+        "ShutterSpeed",
+        "ExposureTime",
+        "ISO",
+        "FocalLength",
+        "FocalLengthIn35mmFormat",
+        "DateTimeOriginal",
+        "GPSLatitude",
+        "GPSLongitude",
+        "GPSAltitude",
+        "ImageSize",
+        "ExifImageWidth",
+        "ExifImageHeight",
+    ]
+    try:
+        cmd = [exiftool_cmd, "-j", "-G0"] + [f"-{t}" for t in tags] + [image_path]
+        proc = subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=30)
+        if proc.returncode == 0 and proc.stdout:
+            data = json.loads(proc.stdout)
+            if data:
+                raw = data[0]
+                result["raw"] = raw
+                result["camera_make"] = raw.get("Make")
+                result["camera_model"] = raw.get("Model")
+                result["lens_model"] = raw.get("LensModel") or raw.get("Lens")
+                result["aperture"] = raw.get("Aperture") or raw.get("FNumber")
+                result["shutter_speed"] = raw.get("ShutterSpeed") or raw.get("ExposureTime")
+                result["iso"] = raw.get("ISO")
+                result["focal_length"] = raw.get("FocalLength") or raw.get("FocalLengthIn35mmFormat")
+                result["date_time_original"] = raw.get("DateTimeOriginal")
+                result["gps_latitude"] = raw.get("GPSLatitude")
+                result["gps_longitude"] = raw.get("GPSLongitude")
+                result["gps_altitude"] = raw.get("GPSAltitude")
+                size = raw.get("ImageSize")
+                if not size:
+                    w = raw.get("ExifImageWidth")
+                    h = raw.get("ExifImageHeight")
+                    if w and h:
+                        size = f"{w}x{h}"
+                result["image_size"] = size
+    except Exception as e:
+        logging.debug(f"ExifTool summary read failed for {image_path}: {e}")
+
+    return result
+
+
 def quality_score_to_rating(score: Optional[int]) -> int:
     """Map a 0-100 quality score to Lightroom 0-5 star rating."""
     if score is None:
