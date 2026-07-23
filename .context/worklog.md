@@ -4,6 +4,8 @@
 
 ### 当日目标
 - 按 `spec.md` 完成“选片完成 → 图库默认本次外拍过滤”闭环
+- 按 `spec.md` 完成“选片人工修正鸟种”
+- 按 `spec.md` 完成“选片等级筛选”
 
 ### 已完成
 1. **数据模型：照片与分组关联外拍**
@@ -32,8 +34,25 @@
    - 完整测试套件：`340 passed, 1 skipped`。
    - 提交 `4b9f807`：功能: 导入流程创建 outing 并在选片-图库间按外拍过滤。
 
+5. **图鉴增强：本次新增物种高亮、历史时间线、地图分布、跳转到图库**
+   - `src/web/app.py`：
+     - `/guide` 以最近一次 `outing` 为“本次外拍”，通过 `outing_id` 判断物种是否新增（本次外拍出现且历史外拍未出现）。
+     - 新增 `/api/guide/species/{scientific_name}/history`：返回物种信息、按外拍分组的历史时间线、以及拍摄地点分布（含经纬度）。
+   - `src/web/templates/guide.html`：
+     - 物种墙中本次新增物种显示绿色边框与“本次新增”徽章。
+     - 点击物种卡片弹出 Bootstrap 模态框，左侧展示历史拍摄时间线（每次外拍的名称、日期、照片数、最佳缩略图），右侧使用 Leaflet 地图展示拍摄地点分布；带经纬度数据时自动缩放并显示标记。
+     - 浮窗底部提供“查看照片 → 图库”按钮，跳转到 `/gallery?species=中文名` 按该物种过滤。
+     - 状态栏显示当前外拍名称和说明。
+   - 测试：
+     - 新增 `test_guide_page_highlights_new_species`：验证历史外拍已有物种不标新、本次外拍新增物种标新。
+     - 新增 `test_guide_species_history_api`：验证时间线、地点分布和经纬度字段。
+     - 新增 `test_guide_species_history_api_not_found`：验证 404 处理。
+     - 更新 `test_guide_page_renders_template` 断言，包含 `current_outing`。
+   - 完整测试套件：`343 passed, 1 skipped`。
+   - 提交 `792dff3`：功能: 图鉴增强（本次新增物种高亮、历史时间线、地图分布）。
+
 ### 待处理
-- [ ] 图鉴增强：本次新增物种标亮、历史拍摄时间线、地图分布、跳转到图库按物种过滤（`spec.md` §4.5）
+- [x] 图鉴增强：本次新增物种标亮、历史拍摄时间线、地图分布、跳转到图库按物种过滤（`spec.md` §4.5）
 
 ## 2026-07-22
 
@@ -267,5 +286,36 @@
       - 完整测试套件：`346 passed, 1 skipped`。
     - 提交 `TBD`：功能: 结构化地点录入与级联图库筛选。
 
+14. **选片人工修正鸟种**
+    - 需求：`spec.md` §3.1 要求识别结果可人工修正，修正后同步更新图库/图鉴中的物种统计和照片元数据。
+    - 后端：
+      - `src/web/app.py` 新增 `POST /api/photo/{photo_id}/correct-species`：接收 `scientific_name`、`chinese_name`、`write_metadata`（可选），查询 IOC 校验物种名，更新 `Photo.primary_bird_cn` / `scientific_name`，并调用 `_refresh_species_for_photo()` 同步更新 `Species` 表与 `species_stats` 统计；如 `write_metadata=True` 则写入原文件元数据。
+      - 新增 `_refresh_species_for_photo()`：通过 `IOCManager.update_species_stats_for_photo()` 刷新 sqlite3 统计表，并同步调整 SQLAlchemy `Species.photo_count` 与旧物种计数。
+    - 前端：
+      - 在 `src/web/templates/select.html` 的大图复核弹窗中增加“修正鸟种”搜索输入框，支持实时搜索候选物种，确认后调用 correct-species API 并刷新页面。
+    - 测试：
+      - 在 `tests/test_web_three_domain.py` 新增 `test_correct_species_updates_photo_and_stats`：验证修正后鸟种字段更新、旧物种计数减少、新物种计数增加、元数据写入成功。
+    - 验证：
+      - 完整测试套件：`343 passed, 1 skipped`。
+
+15. **选片等级筛选**
+    - 需求：`spec.md` §5.3 要求在选片页面按质量等级快速筛选：精选（≥80）、可用（50–79）、记录（<50）、淘汰、无鸟。
+    - 后端：
+      - `src/web/app.py` 的 `/select` 路由新增 `rating` 参数，并新增 `_apply_rating_filter()` 辅助函数实现五档过滤：
+        - `best`：有鸟种且质量分 ≥80 且未淘汰
+        - `usable`：有鸟种且质量分 50–79 且未淘汰
+        - `record`：有鸟种且质量分 <50 且未淘汰
+        - `rejected`：已淘汰（rating == -1）
+        - `no-bird`：无鸟种（primary_bird_cn 为空）
+      - 修复 `rating != -1` 在 SQLite 中对 NULL 值排除的问题，使用 `(rating IS NULL) OR (rating != -1)`。
+    - 前端：
+      - `src/web/templates/select.html` 在筛选栏新增等级按钮组：全部 / 精选 / 可用 / 记录 / 淘汰 / 无鸟；当前选中等级高亮；链接保留 `outing_id` 和 `date` 参数。
+    - 测试：
+      - 在 `tests/test_web_three_domain.py` 新增 `test_select_page_filters_by_rating`：覆盖五个等级的过滤结果与当前等级上下文。
+      - 更新 `test_select_page_renders_template` 断言包含 `current_rating`。
+    - 验证：
+      - 完整测试套件：`344 passed, 1 skipped`。
+
 ### 待处理
-- [ ] 图鉴增强：本次新增物种标亮、历史拍摄时间线、地图分布、跳转到图库按物种过滤（`spec.md` §4.5）
+- [ ] IQA 裁切预览 / 全屏大图（`spec.md` §5.4）
+- [ ] 选片键盘快捷键 / 连拍组快速审阅（`spec.md` §5.5）

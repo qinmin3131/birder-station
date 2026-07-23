@@ -66,8 +66,28 @@
                         <button class="btn btn-success" onclick="batchAction('select')">批量选中 ≥80分</button>
                         <button class="btn btn-outline-secondary" onclick="batchAction('keep')">保留</button>
                         <button class="btn btn-outline-danger" onclick="batchAction('reject')">淘汰</button>
-                        <a href="/gallery?outing_id={{ outing_id }}&view=selected" class="btn btn-primary">查看本次外拍 → 图库</a>
+                        <a href="/gallery?outing_id={{ outing_id }}" class="btn btn-primary">查看本次外拍 → 图库</a>
                     </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tier filter bar -->
+        <div class="row mb-3">
+            <div class="col-12">
+                <div class="btn-group btn-group-sm w-100" role="group" aria-label="等级筛选">
+                    <a href="?outing_id={{ outing_id }}{% if current_date %}&date={{ current_date }}{% endif %}"
+                       class="btn btn-outline-secondary {{ 'active' if not current_rating else '' }}">全部</a>
+                    <a href="?rating=best&outing_id={{ outing_id }}{% if current_date %}&date={{ current_date }}{% endif %}"
+                       class="btn btn-outline-success {{ 'active' if current_rating == 'best' else '' }}">🌟 精选（≥80分）</a>
+                    <a href="?rating=usable&outing_id={{ outing_id }}{% if current_date %}&date={{ current_date }}{% endif %}"
+                       class="btn btn-outline-primary {{ 'active' if current_rating == 'usable' else '' }}">✅ 可用（50–79分）</a>
+                    <a href="?rating=record&outing_id={{ outing_id }}{% if current_date %}&date={{ current_date }}{% endif %}"
+                       class="btn btn-outline-info {{ 'active' if current_rating == 'record' else '' }}">📋 记录（<50分）</a>
+                    <a href="?rating=rejected&outing_id={{ outing_id }}{% if current_date %}&date={{ current_date }}{% endif %}"
+                       class="btn btn-outline-danger {{ 'active' if current_rating == 'rejected' else '' }}">❌ 淘汰</a>
+                    <a href="?rating=no-bird&outing_id={{ outing_id }}{% if current_date %}&date={{ current_date }}{% endif %}"
+                       class="btn btn-outline-dark {{ 'active' if current_rating == 'no-bird' else '' }}">🚫 无鸟</a>
                 </div>
             </div>
         </div>

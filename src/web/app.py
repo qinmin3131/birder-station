@@ -733,11 +733,49 @@ class SelectMarkRequest(BaseModel):
     action: str  # select | keep | reject
 
 
+class CorrectSpeciesRequest(BaseModel):
+    scientific_name: str
+    chinese_name: Optional[str] = None
+    write_metadata: bool = True
+
+
 # --- Three-domain web routes ---
+def _apply_rating_filter(query, rating: str):
+    """Apply tier filtering to the SQLAlchemy Photo query."""
+    if rating == "best":
+        query = query.filter(
+            Photo.primary_bird_cn.isnot(None),
+            Photo.primary_bird_cn != "",
+            Photo.quality_score >= 80,
+            (Photo.rating.is_(None)) | (Photo.rating != -1),
+        )
+    elif rating == "usable":
+        query = query.filter(
+            Photo.primary_bird_cn.isnot(None),
+            Photo.primary_bird_cn != "",
+            Photo.quality_score >= 50,
+            Photo.quality_score < 80,
+            (Photo.rating.is_(None)) | (Photo.rating != -1),
+        )
+    elif rating == "record":
+        query = query.filter(
+            Photo.primary_bird_cn.isnot(None),
+            Photo.primary_bird_cn != "",
+            Photo.quality_score < 50,
+            (Photo.rating.is_(None)) | (Photo.rating != -1),
+        )
+    elif rating == "rejected":
+        query = query.filter(Photo.rating == -1)
+    elif rating == "no-bird":
+        query = query.filter(
+            (Photo.primary_bird_cn.is_(None)) | (Photo.primary_bird_cn == "")
+        )
+    return query
+
 
 @app.get("/select", response_class=HTMLResponse)
-def select_page(request: Request, date: str = "", outing_id: int = 0):
-    """选片工作台：默认展示最近一次外拍的照片，按连拍分组优先展示。"""
+def select_page(request: Request, date: str = "", outing_id: int = 0, rating: str = ""):
+    """选片工作台：默认展示最近一次外拍的照片，按连拍分组优先展示。支持等级筛选。"""
     session = get_sqlalchemy_session()
     try:
         # Determine the active outing
@@ -752,6 +790,8 @@ def select_page(request: Request, date: str = "", outing_id: int = 0):
             query = query.filter(Photo.outing_id == current_outing.id)
         if date:
             query = query.filter(Photo.captured_date == date)
+        if rating:
+            query = _apply_rating_filter(query, rating)
         photos = query.order_by(Photo.captured_date.desc(), Photo.id.desc()).limit(500).all()
 
         # Separate grouped and ungrouped photos
@@ -844,6 +884,7 @@ def select_page(request: Request, date: str = "", outing_id: int = 0):
                 "request": request,
                 "groups": display_groups,
                 "current_date": date,
+                "current_rating": rating,
                 "current_outing": current_outing,
                 "outing_id": current_outing.id if current_outing else 0,
             },
@@ -1071,6 +1112,133 @@ def write_gallery_metadata(filter: str = "", date: str = ""):
         }
     except Exception as e:
         logger.error(f"Failed to batch write metadata: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        session.close()
+
+
+def _refresh_species_for_photo(session, scientific_name: str):
+    """Recalculate and update species stats in both SQLAlchemy and sqlite3 tables."""
+    if not scientific_name:
+        return
+
+    from src.metadata.ioc_manager import create_db_manager
+
+    # Update SQLAlchemy Species table
+    stats = session.query(
+        func.count(Photo.id).label('count'),
+        func.min(Photo.captured_date).label('first_date'),
+        func.max(Photo.captured_date).label('last_date'),
+    ).filter(Photo.scientific_name == scientific_name).first()
+
+    species = session.query(Species).filter(Species.scientific_name == scientific_name).first()
+
+    if stats.count == 0:
+        if species:
+            session.delete(species)
+    else:
+        if not species:
+            # Look up taxonomy for family and Chinese names
+            bird_info = None
+            try:
+                manager = create_db_manager()
+                bird_info = manager.get_bird_info(scientific_name)
+            finally:
+                manager.close()
+            species = Species(
+                scientific_name=scientific_name,
+                chinese_name=bird_info.get('chinese_name') if bird_info else '',
+                family_cn=bird_info.get('family_cn') if bird_info else '',
+                family_sci=bird_info.get('family_sci') if bird_info else '',
+                photo_count=0,
+            )
+            session.add(species)
+        species.photo_count = stats.count
+        species.first_date = stats.first_date
+        species.last_date = stats.last_date
+
+    session.commit()
+
+    # Update sqlite3 species_stats table (pre-computed tree used by index/nav)
+    try:
+        manager = create_db_manager()
+        manager.update_species_stats_for_photo(scientific_name)
+    finally:
+        manager.close()
+
+
+@app.post("/api/photo/{photo_id}/correct-species")
+def correct_photo_species(photo_id: int, request: CorrectSpeciesRequest):
+    """Allow users to manually correct the species of a photo."""
+    session = get_sqlalchemy_session()
+    try:
+        photo = session.query(Photo).filter(Photo.id == photo_id).first()
+        if not photo:
+            raise HTTPException(status_code=404, detail="Photo not found")
+
+        new_name = request.scientific_name.strip()
+        if not new_name:
+            raise HTTPException(status_code=400, detail="Scientific name is required")
+
+        old_name = photo.scientific_name
+        if old_name == new_name:
+            return {"status": "success", "message": "No change", "photo_id": photo_id}
+
+        # Look up taxonomy for Chinese name and family if not provided
+        from src.metadata.ioc_manager import create_db_manager
+        try:
+            manager = create_db_manager()
+            bird_info = manager.get_bird_info(new_name)
+        finally:
+            manager.close()
+
+        new_cn = (request.chinese_name or (bird_info.get('chinese_name') if bird_info else '') or new_name).strip()
+
+        # Update candidate JSON so Top1 reflects the corrected species
+        candidates = _load_json(photo.candidates_json) or []
+        if candidates:
+            candidates[0] = {
+                "chinese_name": new_cn,
+                "scientific_name": new_name,
+                "confidence": 1.0,
+            }
+        else:
+            candidates = [{
+                "chinese_name": new_cn,
+                "scientific_name": new_name,
+                "confidence": 1.0,
+            }]
+
+        photo.primary_bird_cn = new_cn
+        photo.scientific_name = new_name
+        photo.confidence_score = 1.0
+        photo.candidates_json = json.dumps(candidates, ensure_ascii=False)
+        session.commit()
+
+        # Refresh species stats for both old and new species
+        if old_name:
+            _refresh_species_for_photo(session, old_name)
+        _refresh_species_for_photo(session, new_name)
+
+        # Optionally write metadata to the original file
+        if request.write_metadata:
+            try:
+                write_mode = config.get("metadata", {}).get("write_mode", "xmp_sidecar")
+                write_metadata_for_photo(photo, exif_writer, write_mode=write_mode)
+            except Exception as e:
+                logger.warning(f"Metadata write after species correction failed: {e}")
+
+        return {
+            "status": "success",
+            "message": "Species corrected",
+            "photo_id": photo_id,
+            "scientific_name": new_name,
+            "chinese_name": new_cn,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to correct species for photo {photo_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         session.close()
