@@ -1415,9 +1415,13 @@ def gallery_page(
 
 @app.get("/guide", response_class=HTMLResponse)
 def guide_page(request: Request, q: str = ""):
-    """鸟类图鉴：已解锁物种墙，按科分组。"""
+    """鸟类图鉴：已解锁物种墙，按科分组。本次外拍新增物种高亮。"""
     session = get_sqlalchemy_session()
     try:
+        # Determine the most recent outing as the "current" one
+        current_outing = session.query(Outing).order_by(Outing.created_at.desc()).first()
+        current_outing_id = current_outing.id if current_outing else None
+
         species_query = session.query(Species).filter(Species.photo_count > 0)
         if q:
             species_query = species_query.filter(
@@ -1427,6 +1431,26 @@ def guide_page(request: Request, q: str = ""):
                 (Species.family_sci.like(f"%{q}%"))
             )
         species_list = species_query.order_by(Species.family_cn, Species.chinese_name).all()
+
+        # A species is considered "new" in the current outing if it has photos
+        # associated with that outing and no photos from earlier outings.
+        if current_outing_id:
+            species_in_current = set(
+                row[0] for row in session.query(Photo.scientific_name).filter(
+                    Photo.outing_id == current_outing_id,
+                    Photo.scientific_name.isnot(None),
+                ).distinct().all()
+            )
+            species_with_history = set(
+                row[0] for row in session.query(Photo.scientific_name).filter(
+                    Photo.outing_id != current_outing_id,
+                    Photo.outing_id.isnot(None),
+                    Photo.scientific_name.isnot(None),
+                ).distinct().all()
+            )
+            new_species = species_in_current - species_with_history
+        else:
+            new_species = set()
 
         # Group by family
         families_map = {}
@@ -1455,7 +1479,7 @@ def guide_page(request: Request, q: str = ""):
                 "thumbnail_url": thumb,
                 "first_date": first_date,
                 "last_date": last_date,
-                "is_new": False,  # TODO: determine if new in current outing
+                "is_new": sp.scientific_name in new_species,
             })
 
         families = sorted(families_map.values(), key=lambda x: x["family_cn"])
@@ -1470,8 +1494,124 @@ def guide_page(request: Request, q: str = ""):
                 "total_species": total_species,
                 "total_families": total_families,
                 "query": q,
+                "current_outing": current_outing,
             },
         )
+    finally:
+        session.close()
+
+
+@app.get("/api/guide/species/{scientific_name}/history")
+def guide_species_history(scientific_name: str):
+    """返回某物种的历史拍摄记录：时间线（按外拍分组）和地图分布。"""
+    session = get_sqlalchemy_session()
+    try:
+        # Verify species exists
+        species = session.query(Species).filter(
+            Species.scientific_name == scientific_name
+        ).first()
+        if not species:
+            raise HTTPException(status_code=404, detail="Species not found")
+
+        # Timeline grouped by outing
+        outings = (
+            session.query(
+                Outing.id,
+                Outing.name,
+                Outing.start_date,
+                func.count(Photo.id).label("photo_count"),
+                func.min(Photo.captured_date).label("min_date"),
+                func.max(Photo.captured_date).label("max_date"),
+            )
+            .join(Photo, Photo.outing_id == Outing.id)
+            .filter(Photo.scientific_name == scientific_name)
+            .group_by(Outing.id)
+            .order_by(Outing.start_date.desc(), Outing.created_at.desc())
+            .all()
+        )
+
+        timeline = []
+        for outing in outings:
+            best_photo = session.query(Photo).filter(
+                Photo.scientific_name == scientific_name,
+                Photo.outing_id == outing.id,
+            ).order_by(Photo.quality_score.desc(), Photo.captured_date.desc()).first()
+            thumbnail = None
+            if best_photo:
+                thumbnail = resolve_processed_web_path(best_photo.file_path) or resolve_web_path(best_photo.original_path)
+            timeline.append({
+                "outing_id": outing.id,
+                "outing_name": outing.name,
+                "start_date": outing.start_date,
+                "photo_count": outing.photo_count,
+                "date_range": f"{outing.min_date or ''} ~ {outing.max_date or ''}",
+                "thumbnail": thumbnail,
+            })
+
+        # Map distribution: unique locations with coordinates and shot counts
+        location_rows = (
+            session.query(
+                Photo.location_tag,
+                Photo.location_level1,
+                Photo.location_level2,
+                Photo.location_level3,
+                Photo.latitude,
+                Photo.longitude,
+                func.count(Photo.id).label("photo_count"),
+            )
+            .filter(
+                Photo.scientific_name == scientific_name,
+                (
+                    (Photo.location_tag.isnot(None)) |
+                    (Photo.location_level1.isnot(None)) |
+                    (Photo.location_level2.isnot(None)) |
+                    (Photo.location_level3.isnot(None)) |
+                    (Photo.latitude.isnot(None)) |
+                    (Photo.longitude.isnot(None))
+                ),
+            )
+            .group_by(
+                Photo.location_tag,
+                Photo.location_level1,
+                Photo.location_level2,
+                Photo.location_level3,
+                Photo.latitude,
+                Photo.longitude,
+            )
+            .all()
+        )
+
+        locations = []
+        for row in location_rows:
+            parts = [p for p in [row.location_level1, row.location_level2, row.location_level3, row.location_tag] if p]
+            location_name = " / ".join(parts) or "未知地点"
+            locations.append({
+                "name": location_name,
+                "location_tag": row.location_tag,
+                "location_level1": row.location_level1,
+                "location_level2": row.location_level2,
+                "location_level3": row.location_level3,
+                "latitude": row.latitude,
+                "longitude": row.longitude,
+                "photo_count": row.photo_count,
+            })
+
+        return {
+            "status": "success",
+            "species": {
+                "scientific_name": species.scientific_name,
+                "chinese_name": species.chinese_name,
+                "family_cn": species.family_cn,
+                "photo_count": species.photo_count,
+            },
+            "timeline": timeline,
+            "locations": locations,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to fetch species history: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
         session.close()
 

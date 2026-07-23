@@ -1,5 +1,40 @@
 # 工作日志 / Worklog
 
+## 2026-07-23
+
+### 当日目标
+- 按 `spec.md` 完成“选片完成 → 图库默认本次外拍过滤”闭环
+
+### 已完成
+1. **数据模型：照片与分组关联外拍**
+   - `src/db/models.py`：在 `Photo` 表新增 `outing_id` 外键；迁移列表同步增加 `outing_id` 列，兼容旧库。
+   - `src/db/repository.py`：`OutingRepository` 新增 `get_by_id()` / `list_recent()` 方法。
+
+2. **导入流程创建并关联外拍**
+   - `src/web/import_service.py`：`start_import()` 在启动任务前创建 `Outing` 记录，并返回 `outing_id`。
+   - `src/web/task_manager.py`：`start_import()` / `_run_import_thread()` 接收并透传 `outing_id`。
+   - `src/core/indexer.py`：`index_folder_with_stats()` 新增 `outing_id` 参数，新建照片时写入该字段，返回结果中携带 `outing_id`。
+   - `src/pipeline_runner.py`：`run_by_photo_ids()` 新增 `outing_id` 参数；识别完成后将 `outing_id` 写入这些照片；`_group_new_photos()` 保存连拍分组时写入 `photo_groups.outing_id`。
+
+3. **Web 层：选片页默认本次外拍，图库状态显示外拍**
+   - `src/web/app.py`：
+     - `/api/import/start` 返回 `outing_id`。
+     - `/select` 接收 `outing_id` 参数，默认查询最近一次外拍并按 `outing_id` 过滤照片。
+     - `/gallery` 查询当前外拍并传入模板，状态栏显示外拍名称。
+   - `src/web/templates/select.html`：标题显示当前外拍名称；"查看本次外拍 → 图库" 链接改为 `/gallery?outing_id=xxx&view=selected`。
+   - `src/web/templates/gallery.html`：状态栏增加当前外拍名称显示。
+
+4. **测试与验证**
+   - 调整 `tests/test_indexer.py`：验证 `outing_id` 写入与返回。
+   - 调整 `tests/test_pipeline_logic.py`：`MockPipeline` 初始化 `outing_id`；`save_photo_groups` 按 `outing_id` 关键字调用。
+   - 调整 `tests/test_web_import.py`：验证 `start_import` 返回 `outing_id` 并透传。
+   - 调整 `tests/test_web_three_domain.py`：更新 `select_page` / `gallery_page` 模板断言，包含 `outing_id` / `current_outing`。
+   - 完整测试套件：`340 passed, 1 skipped`。
+   - 提交 `4b9f807`：功能: 导入流程创建 outing 并在选片-图库间按外拍过滤。
+
+### 待处理
+- [ ] 图鉴增强：本次新增物种标亮、历史拍摄时间线、地图分布、跳转到图库按物种过滤（`spec.md` §4.5）
+
 ## 2026-07-22
 
 ### 当日目标
@@ -233,57 +268,4 @@
     - 提交 `TBD`：功能: 结构化地点录入与级联图库筛选。
 
 ### 待处理
-- [ ] 与 `spec.md` 对齐：当前 spec 中是否有三域 Web 的详细设计需要确认
-- [x] 将 QualityScorer 集成进 pipeline_runner
-- [x] 实现三域 Web 路由 `/select`、`/gallery`、`/guide`
-- [x] 完善元数据写入并接入 pipeline 与 Web
-- [x] 实现真正的连拍分组（基于 EXIF 时间窗口）
-- [x] 在选片工作台应用连拍分组
-- [x] 实现照片导入 Web 流程
-- [x] 清理运行时文件并验证导入流程后端接口
-- [x] 实现导入覆盖功能
-- [x] 实现选片大图复核界面（检测框/AF点/质量分项）
-- [x] 增强图库筛选能力（日期范围、科/种、地点、视图切换）
-- [ ] 图鉴：本次新增物种标亮、历史拍摄记录浮窗、时间线、地图分布
-- [ ] 选片完成 → 图库默认本次外拍过滤
-- [x] 决定飞版判断策略：暂时保留当前自动飞版逻辑，后续调整
-
-### 文件变更（本次未提交）
-- `.gitignore`
-- `tests/test_focus.py`
-- `.context/worklog.md`（本文件）
-
-## 2026-07-23
-
-### 当日目标
-- 去掉飞版（bif）评分维度
-- 对焦点：无 AF 信息时不兜底，改用 Olympus 专用 ExifTool 标签查询 ORF
-- 修复选片工作台裁切图在 4:3 框内变形问题
-
-### 已完成
-1. **移除飞版评分维度**
-   - `src/core/quality.py`：删除 `bif` 权重、`calculate_bif_score`、`flight_prob` 参数与 `DEFAULT_FLIGHT_UPGRADE_*` 常量
-   - 权重重分配：clarity 0.25→0.30、focus 0.15→0.20，其余不变，总和仍为 1.0
-   - `src/core/pose.py`：删除已不再被调用的 `is_flying` 方法及飞版相关文档
-   - `score_from_path` 不再调用 `is_flying`
-   - 同步 `spec.md`（评估表、伪代码、配置示例、模块表）与三个 config（`settings.yaml`/`settings.test_pipeline.yaml`/`settings.example.yaml`），移除 `bif` 权重与 `flight_probability` 阈值
-   - 更新 `scripts/score_test_images.py`、测试 `tests/test_quality.py`、`tests/test_quality_helpers.py`、`tests/test_pose.py`
-
-2. **对焦点改用 Olympus 专用标签、取消兜底**
-   - `src/core/focus.py` 完全重写：ExifTool 查询 Olympus 专用标签（`AFPointSelected`/`AFSelectedArea`/`AFFocusArea`/`AFFrameSize`/`SubjectDetectArea`）+ 通用 Canon/Nikon 标签 + 图像尺寸
-   - 像素坐标标签直接取点；百分比坐标标签用 ExifImageWidth/Height 换算为像素
-   - 删除 `get_fallback_points`，无 AF 信息时返回空列表
-   - `src/web/app.py` 复核接口取消中心兜底，前端 canvas 对空 af_points 安全（不绘制）
-   - 新增测试 `test_no_fallback_when_exiftool_unavailable`
-
-3. **修复裁切图变形**
-   - `src/web/templates/select.html` 的 `.card-img-top` 由 `height: 220px` 改为 `aspect-ratio: 4 / 3`，配合 `object-fit: contain`
-   - 图片元素本身即为 4:3 框，图片内容按原始比例在框内展示并留白，彻底消除变形
-
-### 发现/踩坑
-- **spec 分歧处理**：用户要求移除 bif 与 spec.md §3.2 冲突，经用户明确确认后同步更新 spec 与 config，未静默覆盖
-- **ORF AF 标签**：原有 `-AFPoint -AFPointsInFocus` 是 Canon/Nikon 通用标签，对 Olympus ORF 无效；Olympus MakerNotes 中 `AFPointSelected` 为百分比坐标，需配合图像尺寸换算
-
-### 测试
-- `python -m pytest` 全量通过：340 passed, 1 skipped
-
+- [ ] 图鉴增强：本次新增物种标亮、历史拍摄时间线、地图分布、跳转到图库按物种过滤（`spec.md` §4.5）

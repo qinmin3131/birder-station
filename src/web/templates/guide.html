@@ -7,15 +7,19 @@
     <link rel="icon" type="image/x-icon" href="/lib/favicon.ico">
     <link href="/lib/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.bootcdn.net/ajax/libs/bootstrap-icons/1.11.3/font/bootstrap-icons.min.css">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
         body { font-size: 14px; }
         .species-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 16px; }
-        .species-card { transition: transform 0.15s; }
+        .species-card { transition: transform 0.15s; cursor: pointer; }
         .species-card:hover { transform: translateY(-4px); box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+        .species-card.new-species { border: 2px solid #198754; box-shadow: 0 0 0 4px rgba(25,135,84,0.15); }
         .species-card img { height: 140px; object-fit: cover; border-radius: 4px 4px 0 0; }
         .family-header { margin-top: 24px; margin-bottom: 12px; padding-bottom: 6px; border-bottom: 2px solid #dee2e6; }
         .stats-bar { background: #f8f9fa; padding: 12px; border-radius: 6px; margin-bottom: 16px; }
         .new-badge { position: absolute; top: 8px; right: 8px; background: #198754; color: white; font-size: 0.75rem; padding: 2px 6px; border-radius: 4px; }
+        #map { height: 320px; border-radius: 6px; border: 1px solid #dee2e6; }
+        .timeline-item { padding: 10px; border-left: 3px solid #0d6efd; margin-bottom: 10px; background: #f8f9fa; border-radius: 4px; }
     </style>
 </head>
 <body>
@@ -50,8 +54,11 @@
                 <span class="fw-bold">📚 已解锁物种：</span>
                 <span class="badge bg-primary fs-6">{{ total_species }}</span>
                 <span class="text-muted ms-2">（共 {{ total_families }} 科）</span>
+                {% if current_outing %}
+                <span class="text-muted ms-2">| 本次外拍：{{ current_outing.name }}（{{ current_outing.start_date }}）</span>
+                {% endif %}
             </div>
-            <div class="text-muted small">图鉴展示数据库中已有照片的物种，按科分组。</div>
+            <div class="text-muted small">图鉴展示数据库中已有照片的物种，按科分组。绿色边框为本次外拍新增物种。</div>
         </div>
 
         {% if not families %}
@@ -68,22 +75,143 @@
 
         <div class="species-grid mb-4">
             {% for sp in family.species %}
-            <div class="card species-card position-relative">
+            <div class="card species-card position-relative {{ 'new-species' if sp.is_new else '' }}"
+                 onclick="openSpeciesModal('{{ sp.scientific_name }}')">
                 {% if sp.is_new %}<div class="new-badge">本次新增</div>{% endif %}
-                <a href="/gallery?q={{ sp.chinese_name | urlencode }}" class="text-decoration-none text-dark">
-                    <img src="{{ sp.thumbnail_url or '/lib/favicon.ico' }}" class="card-img-top" alt="{{ sp.chinese_name }}">
-                    <div class="card-body">
-                        <h6 class="card-title mb-1">{{ sp.chinese_name }}</h6>
-                        <p class="card-text text-muted small fst-italic mb-1">{{ sp.scientific_name }}</p>
-                        <p class="card-text text-muted small mb-0">📷 {{ sp.photo_count }} 张 · 📅 {{ sp.first_date }} ~ {{ sp.last_date }}</p>
-                    </div>
-                </a>
+                <img src="{{ sp.thumbnail_url or '/lib/favicon.ico' }}" class="card-img-top" alt="{{ sp.chinese_name }}">
+                <div class="card-body">
+                    <h6 class="card-title mb-1">{{ sp.chinese_name }}</h6>
+                    <p class="card-text text-muted small fst-italic mb-1">{{ sp.scientific_name }}</p>
+                    <p class="card-text text-muted small mb-0">📷 {{ sp.photo_count }} 张 · 📅 {{ sp.first_date }} ~ {{ sp.last_date }}</p>
+                </div>
             </div>
             {% endfor %}
         </div>
         {% endfor %}
     </div>
 
+    <!-- Species History Modal -->
+    <div class="modal fade" id="speciesModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="speciesModalTitle">物种记录</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <h6>📅 历史拍摄时间线</h6>
+                            <div id="speciesTimeline" class="small">加载中...</div>
+                        </div>
+                        <div class="col-md-6">
+                            <h6>📍 拍摄地点分布</h6>
+                            <div id="map"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <a id="viewPhotosLink" href="/gallery" class="btn btn-primary">查看照片 → 图库</a>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script src="/lib/js/bootstrap.bundle.min.js"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        let map = null;
+        let markers = [];
+        const speciesModal = new bootstrap.Modal(document.getElementById('speciesModal'));
+
+        function clearMap() {
+            if (map) {
+                markers.forEach(m => map.removeLayer(m));
+                markers = [];
+            }
+        }
+
+        function initMap() {
+            if (!map) {
+                map = L.map('map').setView([35.0, 105.0], 4);
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    attribution: '&copy; OpenStreetMap contributors'
+                }).addTo(map);
+            }
+        }
+
+        async function openSpeciesModal(scientificName) {
+            document.getElementById('speciesModalTitle').textContent = '物种记录';
+            document.getElementById('speciesTimeline').innerHTML = '加载中...';
+            clearMap();
+            speciesModal.show();
+
+            // Allow modal layout to settle before initializing map
+            setTimeout(() => {
+                initMap();
+                map.invalidateSize();
+            }, 200);
+
+            try {
+                const resp = await fetch('/api/guide/species/' + encodeURIComponent(scientificName) + '/history');
+                if (!resp.ok) throw new Error('请求失败');
+                const data = await resp.json();
+                if (data.status !== 'success') throw new Error(data.message || '未知错误');
+
+                const sp = data.species;
+                document.getElementById('speciesModalTitle').textContent =
+                    (sp.chinese_name || sp.scientific_name) + ' 的拍摄记录';
+
+                // Update view photos link
+                const link = document.getElementById('viewPhotosLink');
+                link.href = '/gallery?species=' + encodeURIComponent(sp.chinese_name || sp.scientific_name);
+
+                // Render timeline
+                const timelineEl = document.getElementById('speciesTimeline');
+                if (data.timeline.length === 0) {
+                    timelineEl.innerHTML = '<div class="text-muted">暂无历史记录</div>';
+                } else {
+                    timelineEl.innerHTML = data.timeline.map(t => `
+                        <div class="timeline-item">
+                            <div class="fw-bold">${t.outing_name || '外拍 ' + t.outing_id}</div>
+                            <div class="text-muted">${t.start_date} ${t.date_range}</div>
+                            <div>📷 ${t.photo_count} 张</div>
+                            ${t.thumbnail ? `<img src="${t.thumbnail}" class="mt-1 rounded" style="height:60px;object-fit:cover;">` : ''}
+                        </div>
+                    `).join('');
+                }
+
+                // Render map markers
+                clearMap();
+                const validLocations = data.locations.filter(l => l.latitude && l.longitude);
+                if (validLocations.length === 0) {
+                    // Fallback: use named locations without coordinates
+                    if (data.locations.length > 0) {
+                        document.getElementById('map').innerHTML = '<div class="p-3 text-muted small">地点数据暂无经纬度，无法显示地图。<br>' +
+                            data.locations.map(l => l.name).join('；') + '</div>';
+                    } else {
+                        document.getElementById('map').innerHTML = '<div class="p-3 text-muted">暂无地点记录</div>';
+                    }
+                } else {
+                    document.getElementById('map').innerHTML = '';
+                    initMap();
+                    const bounds = [];
+                    validLocations.forEach(l => {
+                        const marker = L.marker([l.latitude, l.longitude]).addTo(map);
+                        marker.bindPopup(`<b>${l.name}</b><br>📷 ${l.photo_count} 张`);
+                        markers.push(marker);
+                        bounds.push([l.latitude, l.longitude]);
+                    });
+                    if (bounds.length > 0) {
+                        map.fitBounds(bounds, { padding: [20, 20], maxZoom: 12 });
+                    }
+                    map.invalidateSize();
+                }
+            } catch (err) {
+                document.getElementById('speciesTimeline').innerHTML = '<div class="text-danger">加载失败：' + err.message + '</div>';
+            }
+        }
+    </script>
 </body>
 </html>

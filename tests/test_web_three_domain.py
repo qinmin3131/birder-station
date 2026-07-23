@@ -7,8 +7,9 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from src.db.models import Base, Photo, Species
+from src.db.models import Base, Photo, Species, Outing
 from src.web import app as web_app
+from fastapi import HTTPException
 
 
 def _mock_metadata_writer(monkeypatch):
@@ -406,6 +407,7 @@ def test_guide_page_renders_template(tmp_path, monkeypatch):
             "total_species": 0,
             "total_families": 0,
             "query": "",
+            "current_outing": None,
         },
     }
 
@@ -434,6 +436,77 @@ def test_guide_page_groups_species_by_family(tmp_path, monkeypatch):
     assert families[0]["family_cn"] == "雀科"
     assert len(families[0]["species"]) == 2
     assert families[1]["family_cn"] == "鸦科"
+
+
+def test_guide_page_highlights_new_species(tmp_path, monkeypatch):
+    db_path = _create_temp_db(tmp_path)
+    monkeypatch.setattr(web_app, "db_path", Path(db_path))
+    session, _ = _create_session(db_path)
+    from datetime import datetime, timedelta
+    old_outing = Outing(name="旧外拍", start_date="20260720", created_at=datetime.utcnow() - timedelta(days=1))
+    new_outing = Outing(name="新外拍", start_date="20260721", created_at=datetime.utcnow())
+    session.add(old_outing)
+    session.add(new_outing)
+    session.commit()
+
+    session.add(Species(scientific_name="Passer domesticus", chinese_name="家麻雀", family_cn="雀科", family_sci="Passeridae", photo_count=2))
+    session.add(Species(scientific_name="Cyanocitta cristata", chinese_name="冠蓝鸦", family_cn="鸦科", family_sci="Corvidae", photo_count=1))
+    session.add(Photo(file_path="a.jpg", filename="a.jpg", scientific_name="Passer domesticus", outing_id=old_outing.id, captured_date="2026-07-20"))
+    session.add(Photo(file_path="b.jpg", filename="b.jpg", scientific_name="Cyanocitta cristata", outing_id=new_outing.id, captured_date="2026-07-21"))
+    session.add(Photo(file_path="c.jpg", filename="c.jpg", scientific_name="Passer domesticus", outing_id=new_outing.id, captured_date="2026-07-21"))
+    session.commit()
+    session.close()
+
+    templates = TemplateRecorder()
+    monkeypatch.setattr(web_app, "templates", templates)
+
+    web_app.guide_page(request=object(), q="")
+    context = templates.calls[0]["context"]
+    families = {f["family_cn"]: f["species"] for f in context["families"]}
+    # 家麻雀在旧外拍已有，不是新增
+    sparrow = next(s for s in families["雀科"] if s["scientific_name"] == "Passer domesticus")
+    assert sparrow["is_new"] is False
+    # 冠蓝鸦只在最新外拍出现，应标记为新增
+    jay = next(s for s in families["鸦科"] if s["scientific_name"] == "Cyanocitta cristata")
+    assert jay["is_new"] is True
+
+
+def test_guide_species_history_api(tmp_path, monkeypatch):
+    db_path = _create_temp_db(tmp_path)
+    monkeypatch.setattr(web_app, "db_path", Path(db_path))
+    session, _ = _create_session(db_path)
+    outing = Outing(name="测试外拍", start_date="20260722")
+    session.add(outing)
+    session.commit()
+    session.add(Species(scientific_name="Passer domesticus", chinese_name="家麻雀", family_cn="雀科", family_sci="Passeridae", photo_count=2))
+    session.add(Photo(
+        file_path="a.jpg", filename="a.jpg", scientific_name="Passer domesticus",
+        outing_id=outing.id, captured_date="2026-07-22", location_tag="北京_玉渊潭",
+        location_level1="北京", location_level2="海淀区", location_level3="玉渊潭公园",
+        latitude=39.91, longitude=116.30, quality_score=85,
+    ))
+    session.commit()
+    session.close()
+
+    result = web_app.guide_species_history(scientific_name="Passer domesticus")
+    assert result["status"] == "success"
+    assert result["species"]["chinese_name"] == "家麻雀"
+    assert len(result["timeline"]) == 1
+    assert result["timeline"][0]["outing_name"] == "测试外拍"
+    assert result["timeline"][0]["photo_count"] == 1
+    assert len(result["locations"]) == 1
+    assert result["locations"][0]["latitude"] == 39.91
+    assert result["locations"][0]["longitude"] == 116.30
+    assert result["locations"][0]["location_level1"] == "北京"
+
+
+def test_guide_species_history_api_not_found(tmp_path, monkeypatch):
+    db_path = _create_temp_db(tmp_path)
+    monkeypatch.setattr(web_app, "db_path", Path(db_path))
+
+    with pytest.raises(HTTPException) as exc:
+        web_app.guide_species_history(scientific_name="Unknown sp.")
+    assert exc.value.status_code == 404
 
 
 def test_write_photo_metadata_api(tmp_path, monkeypatch):
