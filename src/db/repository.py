@@ -81,3 +81,9 @@ class OutingRepository:
             self.session.commit()
             self.session.refresh(outing)
         return outing
+
+    def get_by_id(self, outing_id: int) -> Optional[Outing]:
+        return self.session.query(Outing).filter(Outing.id == outing_id).first()
+
+    def list_recent(self, limit: int = 20) -> List[Outing]:
+        return self.session.query(Outing).order_by(Outing.created_at.desc()).limit(limit).all()

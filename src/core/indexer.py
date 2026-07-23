@@ -62,7 +62,7 @@ class PhotoIndexer:
                 logger.error(f"Failed to index {path}: {e}")
         return photos
 
-    def index_folder_with_stats(self, folder: Path, recursive: bool = True, overwrite: bool = False, location_info: Optional[dict] = None) -> dict:
+    def index_folder_with_stats(self, folder: Path, recursive: bool = True, overwrite: bool = False, location_info: Optional[dict] = None, outing_id: Optional[int] = None) -> dict:
         indexed = 0
         skipped = 0
         errors = 0
@@ -99,6 +99,7 @@ class PhotoIndexer:
                     filename=filename,
                     original_path=file_path,
                     file_hash=file_hash,
+                    outing_id=outing_id,
                     **location_kwargs,
                 )
                 photo = self.repo.add(photo)
@@ -107,7 +108,7 @@ class PhotoIndexer:
             except Exception as e:
                 logger.error(f"Failed to index {path}: {e}")
                 errors += 1
-        return {"indexed": indexed, "skipped": skipped, "errors": errors, "overwritten": overwritten, "photo_ids": photo_ids}
+        return {"indexed": indexed, "skipped": skipped, "errors": errors, "overwritten": overwritten, "photo_ids": photo_ids, "outing_id": outing_id}
 
     @staticmethod
     def _build_location_kwargs(location_info: Optional[dict]) -> dict:

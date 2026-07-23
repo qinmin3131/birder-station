@@ -51,7 +51,10 @@ def test_select_page_renders_template(tmp_path, monkeypatch):
 
     result = web_app.select_page(request=object(), date="")
 
-    assert result == {"template": "select.html", "context": {"request": ANY, "groups": [], "current_date": ""}}
+    assert result == {
+        "template": "select.html",
+        "context": {"request": ANY, "groups": [], "current_date": "", "current_outing": None, "outing_id": 0},
+    }
 
 
 def test_select_page_groups_photos_by_date(tmp_path, monkeypatch):
@@ -149,6 +152,8 @@ def test_gallery_page_renders_template(tmp_path, monkeypatch):
             "has_prev": False,
             "next_offset": 50,
             "prev_offset": 0,
+            "outing_id": 0,
+            "current_outing": None,
         },
     }
 

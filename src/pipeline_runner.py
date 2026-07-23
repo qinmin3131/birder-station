@@ -216,6 +216,9 @@ class WingScribePipeline:
         # Track photo IDs created during a run for post-processing (e.g. grouping)
         self._new_photo_ids = []
 
+        # Outing associated with this run (for import workflow)
+        self.outing_id = None
+
         # Load taxonomy and config lists (with defaults for backward compatibility)
         paths_config = self.config.get('paths', {})
         self.foreign_countries = self._load_list(paths_config.get('foreign_list', 'config/dictionaries/foreign_countries.txt'))
@@ -601,7 +604,7 @@ class WingScribePipeline:
         if isinstance(captured_at, datetime):
             captured_at = captured_at.isoformat()
         if photo_id is not None:
-            self.db.update_photo_record(photo_id, {
+            update_record = {
                 'file_path': db_file_path,
                 'filename': db_filename,
                 'original_path': entry.path,
@@ -621,10 +624,13 @@ class WingScribePipeline:
                 'quality_score': quality_score,
                 'quality_details': quality_details,
                 'bird_bbox': bird_bbox,
-            })
+            }
+            if self.outing_id is not None:
+                update_record['outing_id'] = self.outing_id
+            self.db.update_photo_record(photo_id, update_record)
             self._new_photo_ids.append(photo_id)
         else:
-            new_photo_id = self.db.add_photo_record({
+            new_record = {
                 'file_path': db_file_path,
                 'filename': db_filename,
                 'original_path': entry.path,
@@ -644,7 +650,10 @@ class WingScribePipeline:
                 'quality_score': quality_score,
                 'quality_details': quality_details,
                 'bird_bbox': bird_bbox,
-            })
+            }
+            if self.outing_id is not None:
+                new_record['outing_id'] = self.outing_id
+            new_photo_id = self.db.add_photo_record(new_record)
             if new_photo_id:
                 self._new_photo_ids.append(new_photo_id)
         
@@ -797,7 +806,7 @@ class WingScribePipeline:
         entry = PhotoEntry(photo_record)
         return self.process_image(provider, entry, meta, photo_id=photo_record['id'])
 
-    def run_by_photo_ids(self, photo_ids: list, progress_callback=None):
+    def run_by_photo_ids(self, photo_ids: list, progress_callback=None, outing_id: int = None):
         """Run recognition on already indexed photos by their IDs."""
         t_start = time.time()
         start_time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -805,6 +814,7 @@ class WingScribePipeline:
 
         self._progress_callback = progress_callback
         self._new_photo_ids = []
+        self.outing_id = outing_id
         self.total_files = len(photo_ids)
         self.processed_count = 0
         self._emit_progress()
@@ -821,6 +831,7 @@ class WingScribePipeline:
 
         if not records:
             logging.info("No photos found for the provided IDs")
+            self.outing_id = None
             return
 
         logging.info(f"Running recognition for {len(records)} indexed photos")
@@ -885,6 +896,7 @@ class WingScribePipeline:
 
         logging.info(f"Pipeline (by photo IDs) completed. Processed: {len(records)}. Duration: {duration:.2f}s")
         self._group_new_photos()
+        self.outing_id = None
 
     def run(self, start_date: str = None, end_date: str = None, existing_hashes: set = None):
         t_start = time.time()
@@ -1072,7 +1084,7 @@ class WingScribePipeline:
             if not multi_groups:
                 return
 
-            self.db.save_photo_groups(multi_groups)
+            self.db.save_photo_groups(multi_groups, outing_id=self.outing_id)
             logging.info(f"Created {len(multi_groups)} burst groups from {len(ungrouped_ids)} new photos")
         except Exception as e:
             logging.error(f"Failed to group new photos: {e}")

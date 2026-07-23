@@ -164,14 +164,16 @@
         <div class="status-bar">
             <span class="text-muted small">
                 显示 {{ offset + 1 }}-{{ offset + photos|length }} / 共 {{ total_count }} 张
+                {% if current_outing %} | 外拍：{{ current_outing.name }}（{{ current_outing.start_date }}）{% endif %}
                 {% if current_view %} | 视图：{{ current_view }} {% endif %}
                 {% if query %} | 搜索："{{ query }}" {% endif %}
                 {% if date_from or date_to %} | 日期：{{ date_from }} ~ {{ date_to }} {% endif %}
                 {% if selected_species %} | 鸟种：{{ selected_species|join('、') }} {% endif %}
                 {% if selected_families %} | 科：{{ selected_families|join('、') }} {% endif %}
-                {% if selected_level1 %} | 省：{{ selected_level1|join('、') }} {% endif %}
-                {% if selected_level2 %} | 市：{{ selected_level2|join('、') }} {% endif %}
-                {% if selected_level3 %} | 地点：{{ selected_level3|join('、') }} {% endif %}
+                {% if selected_level1 or selected_level2 or selected_level3 %}
+                    | 地点：{{ selected_level1|join('、') }} / {{ selected_level2|join('、') }} / {{ selected_level3|join('、') }}
+                {% endif %}
+                {% if selected_locations %} | 地点标签：{{ selected_locations|join('、') }} {% endif %}
             </span>
             <div class="btn-group btn-group-sm">
                 <a href="/gallery?{{ base_query }}&offset={{ prev_offset }}{% if current_view %}&view={{ current_view }}{% endif %}" class="btn btn-outline-secondary {% if not has_prev %}disabled{% endif %}">上一页</a>

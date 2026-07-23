@@ -14,8 +14,8 @@ from src.core.io.local import LocalProvider
 # Mocking the pipeline to avoid loading heavy models during init
 class MockPipeline(WingScribePipeline):
     def __init__(self):
-        # Skip super init
-        pass
+        # Skip super init; set attributes exercised by tests
+        self.outing_id = None
 
 
 def _make_entry(path: Path):

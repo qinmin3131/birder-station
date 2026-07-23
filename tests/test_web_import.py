@@ -14,7 +14,7 @@ class FakeTaskManager:
         self.logs = []
         self.started_args = None
 
-    def start_import(self, folder_path, recursive=True, run_recognition=True, overwrite=False, config=None, location_info=None):
+    def start_import(self, folder_path, recursive=True, run_recognition=True, overwrite=False, config=None, location_info=None, outing_id=None):
         if self.is_running:
             return False
         self.is_running = True
@@ -25,13 +25,14 @@ class FakeTaskManager:
             "overwrite": overwrite,
             "config": config,
             "location_info": location_info,
+            "outing_id": outing_id,
         }
         return True
 
 
 @pytest.fixture
 def service(tmp_path):
-    config = {"paths": {"supported_formats": [".jpg", ".jpeg", ".orf"]}}
+    config = {"paths": {"supported_formats": [".jpg", ".jpeg", ".orf"], "db_path": str(tmp_path / "birder.db")}}
     return import_service.ImportService(FakeTaskManager(), config)
 
 
@@ -73,9 +74,12 @@ def test_start_import_returns_success_when_idle(service, tmp_path):
     tmp_path.mkdir(parents=True, exist_ok=True)
     result = service.start_import(str(tmp_path), recursive=True, run_recognition=True)
     assert result["status"] == "success"
+    assert result["outing_id"] is not None
+    assert isinstance(result["outing_id"], int)
     assert service.task_manager.is_running is True
     assert service.task_manager.started_args["folder_path"] == str(tmp_path)
     assert service.task_manager.started_args["run_recognition"] is True
+    assert service.task_manager.started_args["outing_id"] == result["outing_id"]
 
 
 def test_start_import_returns_error_when_busy(service, tmp_path):

@@ -113,10 +113,10 @@ class TaskManager:
             self.is_running = False
             log_capture.removeHandler(handler)
 
-    def start_import(self, folder_path: str, recursive: bool = True, run_recognition: bool = True, overwrite: bool = False, config: dict = None, location_info: dict = None):
+    def start_import(self, folder_path: str, recursive: bool = True, run_recognition: bool = True, overwrite: bool = False, config: dict = None, location_info: dict = None, outing_id: int = None):
         """Start a guided import task: index photos then optionally run recognition pipeline."""
         logger.info(
-            f"[TaskManager] start_import called with path={folder_path}, recursive={recursive}, run_recognition={run_recognition}, overwrite={overwrite}, location_info={location_info}"
+            f"[TaskManager] start_import called with path={folder_path}, recursive={recursive}, run_recognition={run_recognition}, overwrite={overwrite}, location_info={location_info}, outing_id={outing_id}"
         )
         if self.is_running:
             logger.warning("[TaskManager] Task already running, rejecting import request")
@@ -129,14 +129,14 @@ class TaskManager:
 
         thread = threading.Thread(
             target=self._run_import_thread,
-            args=(folder_path, recursive, run_recognition, overwrite, config, location_info),
+            args=(folder_path, recursive, run_recognition, overwrite, config, location_info, outing_id),
             daemon=True,
         )
         thread.start()
         logger.info("[TaskManager] Import thread started, returning success")
         return True
 
-    def _run_import_thread(self, folder_path: str, recursive: bool, run_recognition: bool, overwrite: bool, config: dict, location_info: dict = None):
+    def _run_import_thread(self, folder_path: str, recursive: bool, run_recognition: bool, overwrite: bool, config: dict, location_info: dict = None, outing_id: int = None):
         log_capture = logging.getLogger()
         handler = ListLogHandler(self.logs)
         try:
@@ -158,9 +158,12 @@ class TaskManager:
             Session = sessionmaker(bind=engine)
             session = Session()
             try:
+                if outing_id:
+                    self.logs.append(f"外拍记录 ID：{outing_id}")
+
                 supported_formats = config.get("paths", {}).get("supported_formats") if config else None
                 indexer = PhotoIndexer(PhotoRepository(session), supported_formats=set(supported_formats) if supported_formats else None)
-                result = indexer.index_folder_with_stats(Path(folder_path), recursive=recursive, overwrite=overwrite, location_info=location_info)
+                result = indexer.index_folder_with_stats(Path(folder_path), recursive=recursive, overwrite=overwrite, location_info=location_info, outing_id=outing_id)
                 self.logs.append(
                     f"索引完成：新增 {result['indexed']} 张，跳过重复 {result['skipped']} 张，失败 {result['errors']} 张，覆盖 {result.get('overwritten', 0)} 张"
                 )
@@ -180,7 +183,7 @@ class TaskManager:
                 runner.set_stop_checker(lambda: self.should_stop)
 
                 self.logs.append("开始识别、评分和连拍分组...")
-                runner.run_by_photo_ids(result["photo_ids"])
+                runner.run_by_photo_ids(result["photo_ids"], outing_id=outing_id)
                 self.logs.append("导入完成！")
                 logger.info("Import and pipeline execution completed.")
             elif run_recognition:

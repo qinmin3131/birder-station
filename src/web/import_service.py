@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime
 from pathlib import Path
 from typing import List, Set, Optional
 from collections import Counter
@@ -85,13 +86,16 @@ class ImportService:
         }
 
     def start_import(self, folder: str, recursive: bool = True, run_recognition: bool = True, overwrite: bool = False, location_info: dict = None) -> dict:
-        """Start the background import task."""
+        """Start the background import task and return the associated outing ID."""
         if self.task_manager.is_running:
             return {"status": "error", "message": "Another task is already running"}
 
         folder_path = Path(folder)
         if not folder_path.exists() or not folder_path.is_dir():
             return {"status": "error", "message": "Folder does not exist or is not a directory"}
+
+        # Create an outing record up-front so the API can return its ID immediately
+        outing_id = self._create_outing(folder_path)
 
         self.task_manager.start_import(
             str(folder_path.resolve()),
@@ -100,8 +104,33 @@ class ImportService:
             overwrite=overwrite,
             config=self.config,
             location_info=location_info,
+            outing_id=outing_id,
         )
-        return {"status": "success", "message": "Import started"}
+        return {"status": "success", "message": "Import started", "outing_id": outing_id}
+
+    def _create_outing(self, folder_path: Path) -> int:
+        """Create an Outing record for the import and return its ID."""
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import sessionmaker
+        from src.db.models import init_database as init_sqlalchemy_db, Outing
+        from src.db.repository import OutingRepository
+
+        db_path = self.config.get("paths", {}).get("db_path", "data/birder.db")
+        db_path = Path(db_path)
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        engine = create_engine(f"sqlite:///{db_path}")
+        init_sqlalchemy_db(engine)
+        Session = sessionmaker(bind=engine)
+        session = Session()
+        try:
+            repo = OutingRepository(session)
+            folder_name = folder_path.name
+            today = datetime.now().strftime("%Y%m%d")
+            outing = repo.get_or_create(name=folder_name, start_date=today)
+            return outing.id
+        finally:
+            session.close()
+            engine.dispose()
 
     def get_status(self) -> dict:
         """Return current import/pipeline status."""

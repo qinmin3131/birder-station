@@ -27,8 +27,8 @@ from src.metadata.exif_writer import ExifWriter, write_metadata_for_photo
 from src.utils.config_loader import load_config, validate_paths_config
 from src.core.io.path_generator import PathGenerator
 from src.core.indexer import PhotoIndexer
-from src.db.models import init_database as init_sqlalchemy_db, Photo, Species, PhotoGroup
-from src.db.repository import PhotoRepository
+from src.db.models import init_database as init_sqlalchemy_db, Photo, Species, PhotoGroup, Outing
+from src.db.repository import PhotoRepository, OutingRepository
 from src.web.routes.recognition import router as recognition_router
 from src.web import task_manager as task_manager_module
 from src.web.task_manager import TaskManager as ExtractedTaskManager
@@ -736,11 +736,20 @@ class SelectMarkRequest(BaseModel):
 # --- Three-domain web routes ---
 
 @app.get("/select", response_class=HTMLResponse)
-def select_page(request: Request, date: str = ""):
-    """选片工作台：按连拍分组优先展示，未分组照片按日期展示。"""
+def select_page(request: Request, date: str = "", outing_id: int = 0):
+    """选片工作台：默认展示最近一次外拍的照片，按连拍分组优先展示。"""
     session = get_sqlalchemy_session()
     try:
+        # Determine the active outing
+        current_outing = None
+        if outing_id:
+            current_outing = session.query(Outing).filter(Outing.id == outing_id).first()
+        if not current_outing:
+            current_outing = session.query(Outing).order_by(Outing.created_at.desc()).first()
+
         query = session.query(Photo)
+        if current_outing:
+            query = query.filter(Photo.outing_id == current_outing.id)
         if date:
             query = query.filter(Photo.captured_date == date)
         photos = query.order_by(Photo.captured_date.desc(), Photo.id.desc()).limit(500).all()
@@ -831,7 +840,13 @@ def select_page(request: Request, date: str = ""):
 
         return templates.TemplateResponse(
             request, "select.html",
-            {"request": request, "groups": display_groups, "current_date": date},
+            {
+                "request": request,
+                "groups": display_groups,
+                "current_date": date,
+                "current_outing": current_outing,
+                "outing_id": current_outing.id if current_outing else 0,
+            },
         )
     finally:
         session.close()
@@ -1141,7 +1156,7 @@ async def import_start(data: dict):
     )
     if result.get("status") == "error":
         raise HTTPException(status_code=409, detail=result["message"])
-    return {"status": "success", "message": "Import started"}
+    return {"status": "success", "message": "Import started", "outing_id": result.get("outing_id")}
 
 
 @app.get("/api/import/status")
@@ -1190,6 +1205,11 @@ def gallery_page(
         effective_view = view or filter
         if effective_view not in ("", "all", "selected", "unselected", "uncertain"):
             effective_view = ""
+
+        # Load current outing if specified
+        current_outing = None
+        if outing_id:
+            current_outing = session.query(Outing).filter(Outing.id == outing_id).first()
 
         # Build base query, optionally joining Species for family filtering
         if families:
@@ -1385,6 +1405,8 @@ def gallery_page(
                 "has_prev": has_prev,
                 "next_offset": offset + limit,
                 "prev_offset": max(0, offset - limit),
+                "outing_id": outing_id,
+                "current_outing": current_outing,
             },
         )
     finally:

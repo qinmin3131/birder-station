@@ -79,6 +79,13 @@ def test_index_folder_with_stats_counts_indexed_and_skipped(repo, tmp_path):
     assert result["errors"] == 0
     assert result["overwritten"] == 0
     assert len(result["photo_ids"]) == 1
+    assert result["outing_id"] is None
+
+    result_with_outing = indexer.index_folder_with_stats(tmp_path, overwrite=True, outing_id=5)
+    assert result_with_outing["outing_id"] == 5
+    assert result_with_outing["overwritten"] == 1
+    photo = repo.list_photos()[0]
+    assert photo.outing_id == 5
 
 
 def test_index_folder_with_stats_applies_location_info(repo, tmp_path):
