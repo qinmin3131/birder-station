@@ -403,4 +403,33 @@
     - 需求：用户认为原“姿态评分”虚高（基本都是 96 分），且不应该叫“姿态评分”，应改为“鸟占画面的比例”，越大说明鸟越近。
     - 后端：
       - `src/core/pose.py`：移除头/眼/身/尾/翼等姿态可见性推断，仅返回 `subject_size`（bbox 面积 / 图像面积，限制 [0,1]）。
+    - 测试：
+      - 更新 `tests/test_pose.py`：仅断言 `subject_size` 在 [0,1] 范围内。
+    - 验证：完整测试套件通过。
+
+23. **画质评分：简化维度至 4 维**
+    - 需求：用户认为飞版/姿态/对焦点/构图位置判断均不可靠或主观性过强，决定保留最稳定的 4 个维度：清晰度、对比度、曝光、主体占比。
+    - 后端：
+      - `src/core/quality.py`：
+        - 移除 `pose`、`bif`、`focus`、`position` 维度计算。
+        - 新增 `subject_size` 维度，基于鸟框面积占图像面积的比例。
+        - 默认权重改为：clarity 0.35、contrast 0.20、exposure 0.20、subject_size 0.25。
+        - `score_from_path` 仅读取图像并计算 4 维评分。
+      - `src/core/focus.py`：`FocusParser` 改为占位实现，始终返回空列表，避免其他模块导入错误；不再参与评分。
+      - `src/web/app.py`：`/api/photo/{photo_id}/review` 移除 `af_points` 字段。
+    - 配置：
+      - `config/settings.yaml`、`config/settings.example.yaml`、`config/settings.test_pipeline.yaml`：更新 `quality` 权重为 4 维。
+    - 前端：
+      - `src/web/templates/select.html` 与 `src/web/templates/gallery.html`：质量分项名称映射从 7 维改为 4 维（清晰度、对比度、曝光、主体占比），复核/详情弹窗不再显示对焦点、姿态、飞版、构图位置。
+    - 测试：
+      - 更新 `tests/test_quality.py`：仅断言 4 维评分。
+      - 更新 `tests/test_quality_helpers.py`：验证 `score_from_path` 返回 4 维。
+      - 删除 `tests/test_focus.py`：对焦点不再参与评分。
+      - 更新 `tests/test_web_review.py`：移除 `FakeFocusParser` mock 与 `af_points` 断言；质量分项用 exposure 替代 focus。
+    - 验证：
+      - 完整测试套件：`331 passed, 1 skipped`。
+
+### 待处理
+- 无。
+
 

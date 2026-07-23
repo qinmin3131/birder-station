@@ -27,13 +27,6 @@ def client(tmp_path, monkeypatch):
 
     monkeypatch.setattr(web_app, "get_sqlalchemy_session", _get_session)
 
-    # Mock focus parser to avoid exiftool dependency
-    class FakeFocusParser:
-        def parse_af_points(self, image_path):
-            return [(123, 456)]
-
-    monkeypatch.setattr(web_app, "focus_parser", FakeFocusParser())
-
     with TestClient(web_app.app) as c:
         yield c
 
@@ -82,7 +75,7 @@ def test_review_returns_photo_metadata_and_exif_summary(client, sample_jpg, monk
         session,
         original_path=str(sample_jpg),
         candidates_json=[{"sci": "Passer montanus", "cn": "麻雀", "score": 0.95}],
-        quality_details={"clarity": 80, "focus": 90},
+        quality_details={"clarity": 80, "exposure": 90},
         bird_bbox=[100, 100, 300, 300],
     )
     session.close()
@@ -112,8 +105,7 @@ def test_review_returns_photo_metadata_and_exif_summary(client, sample_jpg, monk
     assert data["photo"]["primary_bird_cn"] == "麻雀"
     assert data["photo"]["bird_bbox"] == [100, 100, 300, 300]
     assert data["candidates"][0]["cn"] == "麻雀"
-    assert data["quality_details"]["focus"] == 90
-    assert data["af_points"] == [[123, 456]]
+    assert data["quality_details"]["exposure"] == 90
     assert data["exif"]["camera_make"] == "OLYMPUS"
     assert data["exif"]["iso"] == 800
     assert data["exif"]["file_size"] == sample_jpg.stat().st_size

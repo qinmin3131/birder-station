@@ -20,12 +20,10 @@ metadata:
 
 quality:
   weights:
-    clarity: 0.30
-    contrast: 0.10
-    position: 0.10
-    exposure: 0.10
-    pose: 0.20
-    focus: 0.20
+    clarity: 0.35
+    contrast: 0.20
+    exposure: 0.20
+    subject_size: 0.25
   pose_upgrade_threshold:
     head_eye_visible: true
 

@@ -23,7 +23,7 @@ from typing import Optional, List, Any, Dict
 BASE_DIR = Path(__file__).parent.parent.parent.absolute()
 sys.path.append(str(BASE_DIR))
 
-from src.core.focus import FocusParser
+from src.core.quality import QualityScorer
 from src.core.processor import ImageProcessor
 from src.metadata.exif_writer import ExifWriter, write_metadata_for_photo, read_exif_summary
 from src.utils.config_loader import load_config, validate_paths_config
@@ -989,9 +989,6 @@ def write_photo_metadata(photo_id: int):
         session.close()
 
 
-focus_parser = FocusParser(exiftool_path=exif_writer.exiftool_path)
-
-
 def _resolve_original_path(photo: Photo) -> str:
     """Return absolute path to the original photo file."""
     path = photo.original_path or photo.file_path
@@ -1013,7 +1010,7 @@ def _resolve_original_path(photo: Photo) -> str:
 
 @app.get("/api/photo/{photo_id}/review")
 def get_photo_review(photo_id: int):
-    """Return full review details for a photo: metadata, candidates, quality details, AF points.
+    """Return full review details for a photo: metadata, candidates, quality details.
 
     Also returns the previous/next photo id within the same group (or same captured_date
     if the photo is ungrouped) so the review UI can navigate with arrow keys.
@@ -1027,9 +1024,6 @@ def get_photo_review(photo_id: int):
         original_path = _resolve_original_path(photo)
         if not original_path or not Path(original_path).exists():
             raise HTTPException(status_code=404, detail="Original file not found")
-
-        # AF points; no center fallback when EXIF has no AF data
-        af_points = focus_parser.parse_af_points(original_path)
 
         candidates: List[Any] = []
         if photo.candidates_json:
@@ -1076,7 +1070,6 @@ def get_photo_review(photo_id: int):
             },
             "candidates": candidates,
             "quality_details": quality_details,
-            "af_points": af_points,
             "exif": exif_summary,
             "prev_photo_id": prev_photo_id,
             "next_photo_id": next_photo_id,

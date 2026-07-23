@@ -1,7 +1,7 @@
 import cv2
 import logging
 import numpy as np
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 
 class QualityChecker:
@@ -38,33 +38,23 @@ class QualityChecker:
 
 
 class QualityScorer:
-    """6 维加权画质评分器。
+    """4 维加权画质评分器。
 
-    维度权重按 spec.md §3.2 定义,可通过构造函数注入来自 ``config/settings.yaml``
-    的 ``quality.weights`` 自定义。各维度返回 0-1 的归一化分数,综合分数为 0-100
-    的整数。
-
-    注: 原飞版加分 (bif) 维度已移除,其权重重新分配至 clarity 与 focus。
+    维度：清晰度、对比度、曝光、主体占比。所有分数均不依赖 EXIF 或
+    鸟类姿态关键点，仅基于图像统计与鸟框几何。
     """
 
     DEFAULT_WEIGHTS: Dict[str, float] = {
-        "clarity": 0.30,
-        "contrast": 0.10,
-        "position": 0.10,
-        "exposure": 0.10,
-        "subject_size": 0.20,
-        "focus": 0.20,
+        "clarity": 0.35,
+        "contrast": 0.20,
+        "exposure": 0.20,
+        "subject_size": 0.25,
     }
 
-    DEFAULT_EMPTY_FOCUS_SCORE = 0.5
     _CLARITY_NORMALIZER = 500.0
     _CONTRAST_NORMALIZER = 80.0
 
-    def __init__(
-        self,
-        weights: Optional[Dict[str, float]] = None,
-        subject_size_upgrade_threshold: Optional[Dict] = None,
-    ):
+    def __init__(self, weights: Optional[Dict[str, float]] = None):
         self.weights = dict(self.DEFAULT_WEIGHTS)
         if weights:
             self.weights.update(weights)
@@ -87,24 +77,11 @@ class QualityScorer:
         std = float(gray.std())
         return min(std / self._CONTRAST_NORMALIZER, 1.0)
 
-    def calculate_position(
+    def calculate_subject_size_score(
         self,
         image_shape: Tuple[int, ...],
         bird_bbox: Tuple[int, int, int, int],
     ) -> float:
-        """主体中心越靠近画面中心得分越高,归一化到 0-1。"""
-        h, w = image_shape[:2]
-        if w == 0 or h == 0:
-            return 0.0
-        x, y, bw, bh = bird_bbox
-        cx, cy = x + bw / 2.0, y + bh / 2.0
-        center_dist = ((cx - w / 2.0) ** 2 + (cy - h / 2.0) ** 2) ** 0.5
-        max_dist = ((w ** 2 + h ** 2) ** 0.5) / 2.0
-        if max_dist == 0:
-            return 0.0
-        return max(0.0, 1.0 - center_dist / max_dist)
-
-    def calculate_subject_size_score(self, image_shape: Tuple[int, ...], bird_bbox: Tuple[int, int, int, int]) -> float:
         """鸟占画面的比例，越大说明鸟越近/越突出，归一化到 0-1。"""
         h, w = image_shape[:2]
         if w <= 0 or h <= 0:
@@ -130,36 +107,12 @@ class QualityScorer:
         )
         return max(0.0, 1.0 - deviation)
 
-    def calculate_pose_score(self, visibility: Dict[str, float]) -> float:
-        """头/眼/身/尾/翼可见度均值,归一化到 0-1。"""
-        if not visibility:
-            return 0.0
-        values = [float(v) for v in visibility.values()]
-        return sum(values) / len(values)
-
-    def calculate_focus_score(
-        self,
-        focus_points: List[Tuple[int, int]],
-        bird_bbox: Tuple[int, int, int, int],
-    ) -> float:
-        """AF 对焦点落在鸟框内的比例。无对焦点时返回默认中性分。"""
-        if not focus_points:
-            return self.DEFAULT_EMPTY_FOCUS_SCORE
-        x, y, bw, bh = bird_bbox
-        inside = sum(
-            1 for px, py in focus_points
-            if x <= px <= x + bw and y <= py <= y + bh
-        )
-        return inside / len(focus_points)
-
     def calculate_quality_score(
         self,
         image: np.ndarray,
         bird_bbox: Tuple[int, int, int, int],
-        visibility: Dict[str, float],
-        focus_points: List[Tuple[int, int]],
     ) -> Dict:
-        """计算 6 维加权综合画质评分。
+        """计算 4 维加权综合画质评分。
 
         Returns:
             ``{"score": int 0-100, "details": {dim: float 0-1, ...}}``
@@ -167,31 +120,18 @@ class QualityScorer:
         details = {
             "clarity": self.calculate_clarity(image),
             "contrast": self.calculate_contrast(image),
-            "position": self.calculate_position(image.shape, bird_bbox),
             "exposure": self.calculate_exposure(image),
             "subject_size": self.calculate_subject_size_score(image.shape, bird_bbox),
-            "focus": self.calculate_focus_score(focus_points, bird_bbox),
         }
         weighted = sum(details[dim] * self.weights[dim] for dim in self.weights)
         return {"score": int(round(weighted * 100)), "details": details}
 
     def score_from_path(self, image_path: str, bird_bbox: Tuple[int, int, int, int]) -> Dict:
-        """从图像路径和鸟框计算 6 维画质评分。
-
-        自动调用 FocusParser 获取焦点信息,主体占比由鸟框与画面面积比计算。
-        无 AF 对焦点时不进行中心兜底,focus 维度返回中性分。
-        """
-        from .focus import FocusParser
-
+        """从图像路径和鸟框计算 4 维画质评分。"""
         image = cv2.imread(image_path)
         if image is None:
             logging.error(f"Could not read image for quality scoring: {image_path}")
             return {"score": 0, "details": {dim: 0.0 for dim in self.DEFAULT_WEIGHTS}}
 
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        focus_parser = FocusParser()
-
-        visibility = {"subject_size": self.calculate_subject_size_score(image.shape, bird_bbox)}
-        focus_points = focus_parser.parse_af_points(image_path)
-
-        return self.calculate_quality_score(image, bird_bbox, visibility, focus_points)
+        return self.calculate_quality_score(image, bird_bbox)
