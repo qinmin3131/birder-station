@@ -1,3 +1,0 @@
-  MakerNoteNintendo MakerNoteOffset MakerNoteOlympus MakerNoteOlympus2
-  MakerNoteOlympus3 MakerNotePanasonic MakerNotePanasonic2 MakerNotePanasonic3
-  OilTemp OldSubfileType OldXMP OlympusImageHeight OlympusImageWidth
