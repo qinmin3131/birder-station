@@ -23,40 +23,23 @@
     </style>
 </head>
 <body>
-    <nav class="navbar navbar-expand-lg shadow-sm" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
-        <div class="container">
-            <a class="navbar-brand fw-bold text-white" href="/">
-                <span style="font-size: 1.3em;">🕊️</span> 飞羽志 <span class="opacity-75">| WingScribe</span>
-            </a>
-            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
-                <span class="navbar-toggler-icon"></span>
-            </button>
-            <div class="collapse navbar-collapse" id="navbarNav">
-                <ul class="navbar-nav me-auto">
-                    <li class="nav-item"><a class="nav-link text-white" href="/select">选片</a></li>
-                    <li class="nav-item"><a class="nav-link text-white" href="/gallery">图库</a></li>
-                    <li class="nav-item"><a class="nav-link text-white active bg-white bg-opacity-25 rounded" href="/guide">图鉴</a></li>
-                    <li class="nav-item"><a class="nav-link text-white" href="/admin">管理与任务</a></li>
-                    <li class="nav-item"><a class="nav-link text-white" href="/import"><i class="bi bi-cloud-upload"></i> 导入</a></li>
-                    <li class="nav-item"><a class="nav-link text-white" href="/settings"><i class="bi bi-gear-fill"></i> 设置</a></li>
-                </ul>
-                <form class="d-flex" action="/guide" method="get">
-                    <input class="form-control me-2 bg-white border-0" type="search" name="q" placeholder="搜索物种/科..." value="{{ query }}">
-                    <button class="btn btn-light" type="submit">搜索</button>
-                </form>
-            </div>
-        </div>
-    </nav>
+    {% include 'navbar.html' with active_page='guide' %}
 
     <div class="container-fluid mt-4 px-4">
         <div class="stats-bar d-flex justify-content-between align-items-center">
-            <div>
-                <span class="fw-bold">📚 已解锁物种：</span>
-                <span class="badge bg-primary fs-6">{{ total_species }}</span>
-                <span class="text-muted ms-2">（共 {{ total_families }} 科）</span>
+            <div class="d-flex align-items-center gap-3 flex-wrap">
+                <div>
+                    <span class="fw-bold">📚 已解锁物种：</span>
+                    <span class="badge bg-primary fs-6">{{ total_species }}</span>
+                    <span class="text-muted ms-2">（共 {{ total_families }} 科）</span>
+                </div>
                 {% if current_outing %}
-                <span class="text-muted ms-2">| 本次外拍：{{ current_outing.name }}（{{ current_outing.start_date }}）</span>
+                <div class="text-muted">| 本次外拍：{{ current_outing.name }}（{{ current_outing.start_date }}）</div>
                 {% endif %}
+                <form class="d-flex" action="/guide" method="get">
+                    <input class="form-control form-control-sm me-2" type="search" name="q" placeholder="搜索物种/科..." value="{{ query }}">
+                    <button class="btn btn-sm btn-outline-secondary" type="submit">搜索</button>
+                </form>
             </div>
             <div class="text-muted small">图鉴展示数据库中已有照片的物种，按科分组。绿色边框为本次外拍新增物种。</div>
         </div>

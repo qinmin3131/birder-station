@@ -115,110 +115,65 @@ def test_index_redirects_to_settings_when_first_run(monkeypatch):
     }
 
 
-def test_index_builds_photo_page_and_pagination(monkeypatch):
+def test_index_builds_workbench_with_stats(monkeypatch, tmp_path):
     templates = TemplateRecorder()
 
-    class StubCursor:
+    from datetime import datetime, timezone
+    from unittest.mock import MagicMock
+
+    class StubSession:
         def __init__(self):
-            self.executed = []
-            self._last_sql = None
-
-        def execute(self, sql, params=None):
-            self._last_sql = sql
-            self.executed.append((sql, list(params or [])))
-
-        def fetchone(self):
-            if "COUNT(*) FROM photos" in self._last_sql:
-                return (4,)
-            raise AssertionError(f"unexpected fetchone for {self._last_sql}")
-
-        def fetchall(self):
-            if "SELECT * FROM photos" in self._last_sql:
-                return [
-                    {
-                        "id": 3,
-                        "original_path": "raw/a.jpg",
-                        "file_path": "processed/a.jpg",
-                        "captured_date": "20260320",
-                    },
-                    {
-                        "id": 2,
-                        "original_path": "raw/b.jpg",
-                        "file_path": "processed/b.jpg",
-                        "captured_date": "20260319",
-                    },
-                ]
-            if "SELECT DISTINCT captured_date" in self._last_sql:
-                return [("20260320",), ("20260319",), (None,)]
-            raise AssertionError(f"unexpected fetchall for {self._last_sql}")
-
-    class StubConn:
-        def __init__(self):
-            self.cursor_obj = StubCursor()
+            self._counts = {"photos": 4, "species": 3, "outings": 2}
             self.closed = False
 
-        def cursor(self):
-            return self.cursor_obj
+        def query(self, model):
+            class StubQuery:
+                def __init__(self, count_value):
+                    self._count_value = count_value
+
+                def scalar(self):
+                    return self._count_value
+
+                def order_by(self, *_):
+                    return self
+
+                def first(self):
+                    outing = MagicMock()
+                    outing.id = 7
+                    outing.name = "测试外拍"
+                    outing.created_at = datetime(2026, 7, 22, 8, 0, 0, tzinfo=timezone.utc)
+                    return outing
+
+            target = str(model)
+            if "photos.id" in target or "Photo" in target:
+                return StubQuery(self._counts["photos"])
+            if "species.id" in target or "Species" in target:
+                return StubQuery(self._counts["species"])
+            if "outings.id" in target or "Outing" in target:
+                return StubQuery(self._counts["outings"])
+            raise AssertionError(f"unexpected query target: {target}")
 
         def close(self):
             self.closed = True
 
-    conn = StubConn()
+    session = StubSession()
     monkeypatch.setattr(web_app, "templates", templates)
     monkeypatch.setattr(web_app, "is_first_run", lambda: False)
     monkeypatch.setattr(web_app, "is_paths_configured", lambda: True)
-    monkeypatch.setattr(web_app, "get_db_conn", lambda: conn)
-    monkeypatch.setattr(web_app, "resolve_web_path", lambda path: f"/raw/{path}")
-    monkeypatch.setattr(web_app, "resolve_processed_web_path", lambda path: f"/processed/{path}")
+    monkeypatch.setattr(web_app, "get_sqlalchemy_session", lambda: session)
 
-    result = web_app.index(
-        request=object(),
-        q="sparrow",
-        filter="uncertain",
-        date="20260320",
-        limit=2,
-        offset=1,
-    )
+    result = web_app.index(request=object())
 
     assert result["template"] == "index.html"
     context = result["context"]
-    assert context["query"] == "sparrow"
-    assert context["current_filter"] == "uncertain"
-    assert context["current_date"] == "20260320"
-    assert context["available_dates"] == ["20260320", "20260319"]
-    assert context["has_next"] is True
-    assert context["has_prev"] is True
-    assert context["next_offset"] == 3
-    assert context["prev_offset"] == 0
-    assert context["photos"] == [
-        {
-            "id": 3,
-            "original_path": "raw/a.jpg",
-            "file_path": "processed/a.jpg",
-            "captured_date": "20260320",
-            "web_raw_path": "/raw/raw/a.jpg",
-            "web_processed_path": "/processed/processed/a.jpg",
-        },
-        {
-            "id": 2,
-            "original_path": "raw/b.jpg",
-            "file_path": "processed/b.jpg",
-            "captured_date": "20260319",
-            "web_raw_path": "/raw/raw/b.jpg",
-            "web_processed_path": "/processed/processed/b.jpg",
-        },
-    ]
-    assert conn.closed is True
-    assert conn.cursor_obj.executed[0][1] == [
-        "%sparrow%",
-        "%sparrow%",
-        "%sparrow%",
-        "%sparrow%",
-        "待确认鸟种",
-        "Uncertain",
-        "20260320",
-    ]
-    assert conn.cursor_obj.executed[1][1][-2:] == [2, 1]
+    assert context["stats"] == {
+        "total_photos": 4,
+        "total_species": 3,
+        "total_outings": 2,
+    }
+    assert context["recent_outing"].id == 7
+    assert context["recent_outing"].name == "测试外拍"
+    assert session.closed is True
 
 
 def test_admin_dashboard_uses_settings_template_when_paths_missing(monkeypatch):

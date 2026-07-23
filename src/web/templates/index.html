@@ -3,1106 +3,172 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>飞羽志 WingScribe - Bird Photography Gallery</title>
+    <title>飞羽志工作台 · WingScribe</title>
     <link rel="icon" type="image/x-icon" href="/lib/favicon.ico">
     <link href="/lib/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.bootcdn.net/ajax/libs/bootstrap-icons/1.11.3/font/bootstrap-icons.min.css">
     <style>
-        /* 全局样式 */
+        :root {
+            --brand-start: #667eea;
+            --brand-end: #764ba2;
+        }
         body {
             font-size: 14px;
-        }
-
-        .card-img-top {
-            height: 250px;
-            object-fit: cover;
-            cursor: pointer;
-        }
-        .confidence-high { color: green; }
-        .confidence-med { color: orange; }
-        .confidence-low { color: red; }
-        .card.status-uncertain { border: 2px solid #ffc107; }
-        .badge-uncertain { background-color: #ffc107 !important; color: #000; }
-        .location-tag {
-            font-size: 0.8rem;
-            color: #666;
-        }
-        .path-info {
-            font-size: 0.75rem;
-            color: #999;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-
-        /* 照片网格布局 - 使用CSS Grid确保每张图片等宽 */
-        .photo-grid {
-            display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 16px;
-            width: 100%;
-        }
-
-        .photo-grid .photo-card {
-            min-width: 0; /* 防止内容溢出 */
-        }
-
-        /* 响应式调整：平板3列，手机2列 */
-        @media (max-width: 991.98px) {
-            .photo-grid {
-                grid-template-columns: repeat(3, 1fr);
-            }
-        }
-        @media (max-width: 767.98px) {
-            .photo-grid {
-                grid-template-columns: repeat(2, 1fr);
-            }
-        }
-        .sidebar {
-            position: sticky;
-            top: 70px;
-            height: calc(100vh - 80px);
-            overflow: hidden;
+            min-height: 100vh;
             display: flex;
             flex-direction: column;
+            background: linear-gradient(135deg, #f5f7ff 0%, #f9f5ff 100%);
         }
-
-        .sidebar-header {
-            padding: 12px;
-            border-bottom: 1px solid #dee2e6;
-            flex-shrink: 0;
-        }
-
-        .sidebar-body {
-            padding: 0;
-            overflow-y: auto;
-            overflow-x: hidden;
+        .workbench-hero {
             flex: 1;
-        }
-
-        .taxonomy-tree {
-            /* 移除max-height，让内容自然滚动 */
-            padding: 8px 0;
-        }
-
-        /* 树形节点样式 */
-        .tree-node {
-            cursor: pointer;
-            padding: 4px 8px;
-            border-radius: 4px;
-            transition: background-color 0.2s;
-            font-size: 0.875rem;
-            white-space: nowrap;
-        }
-        .tree-node:hover {
-            background-color: #f8f9fa;
-        }
-        .tree-node.active {
-            background-color: #0d6efd;
-            color: white;
-            font-weight: 500;
-        }
-        .tree-children {
-            margin-left: 16px;
-            display: none;
-        }
-        .tree-children.expanded {
-            display: block;
-        }
-        .tree-toggle {
-            display: inline-block;
-            width: 16px;
-            text-align: center;
-            margin-right: 6px;
-            cursor: pointer;
-            transition: transform 0.2s;
-        }
-        .tree-toggle:hover {
-            transform: scale(1.1);
-        }
-        .node-count {
-            font-size: 0.75rem;
-            color: #666;
-            margin-left: 6px;
-            opacity: 0.8;
-        }
-        .tree-node.active .node-count {
-            color: rgba(255,255,255,0.9);
-        }
-
-        /* 分类信息面板 */
-        .taxonomy-info {
-            font-size: 0.8rem;
-            color: #666;
-            padding: 8px 12px;
-            background: #f8f9fa;
-            border-top: 1px solid #dee2e6;
-            border-bottom: 1px solid #dee2e6;
-            display: none;
-            flex-shrink: 0;
-        }
-        .taxonomy-info.expanded {
-            display: block;
-        }
-
-        /* 优化按钮样式 */
-        .btn-sm {
-            padding: 0.25rem 0.5rem;
-            font-size: 0.875rem;
-        }
-
-        /* 状态栏 */
-        .status-bar {
-            padding: 8px 12px;
-            background: #f8f9fa;
-            border-radius: 6px;
-            margin-bottom: 16px;
             display: flex;
-            justify-content: space-between;
+            flex-direction: column;
             align-items: center;
+            justify-content: center;
+            padding: 48px 24px;
+            text-align: center;
         }
-
-        /* 隐藏滚动条但保留滚动功能 */
-        .taxonomy-tree::-webkit-scrollbar {
-            width: 6px;
+        .workbench-logo {
+            width: 96px;
+            height: 96px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 48px;
+            background: linear-gradient(135deg, var(--brand-start) 0%, var(--brand-end) 100%);
+            color: #fff;
+            box-shadow: 0 12px 32px rgba(102, 126, 234, 0.3);
+            margin-bottom: 24px;
         }
-        .taxonomy-tree::-webkit-scrollbar-thumb {
-            background: #dee2e6;
-            border-radius: 3px;
+        .workbench-title {
+            font-size: 2.25rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--brand-start) 0%, var(--brand-end) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 12px;
         }
-        .taxonomy-tree::-webkit-scrollbar-thumb:hover {
-            background: #adb5bd;
+        .workbench-subtitle {
+            font-size: 1.5rem;
+            color: #4b5563;
+            margin-bottom: 48px;
         }
-
+        .entry-card {
+            border: 0;
+            border-radius: 20px;
+            padding: 36px 24px;
+            background: #fff;
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.06);
+            transition: transform 0.2s, box-shadow 0.2s;
+            text-decoration: none;
+            color: inherit;
+            display: block;
+            height: 100%;
+        }
+        .entry-card:hover {
+            transform: translateY(-6px);
+            box-shadow: 0 16px 48px rgba(0, 0, 0, 0.1);
+            color: inherit;
+        }
+        .entry-icon {
+            width: 64px;
+            height: 64px;
+            border-radius: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 32px;
+            margin: 0 auto 16px;
+            color: #fff;
+        }
+        .entry-import { background: linear-gradient(135deg, #00b09b 0%, #96c93d 100%); }
+        .entry-gallery { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+        .entry-guide { background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); }
+        .entry-label {
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+        .entry-desc {
+            color: #6c757d;
+            font-size: 0.9rem;
+        }
+        .workbench-footer {
+            padding: 24px;
+            text-align: center;
+            color: #9ca3af;
+            font-size: 0.8rem;
+        }
+        .stats-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 14px;
+            border-radius: 999px;
+            background: #fff;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+            font-size: 0.85rem;
+            color: #4b5563;
+            margin-bottom: 36px;
+        }
     </style>
 </head>
 <body>
-    <nav class="navbar navbar-expand-lg shadow-sm" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
-        <div class="container">
-            <a class="navbar-brand fw-bold text-white" href="/">
-                <span style="font-size: 1.3em;">🕊️</span> 飞羽志 <span class="opacity-75">| WingScribe</span>
+    <div class="workbench-hero">
+        <div class="workbench-logo">🕊️</div>
+        <h1 class="workbench-title">飞羽志 WingScribe</h1>
+        <p class="workbench-subtitle">今天拍到了什么鸟？</p>
+
+        {% if stats %}
+        <div class="stats-pill">
+            <span><i class="bi bi-image"></i> {{ stats.total_photos }} 张照片</span>
+            <span class="text-muted">|</span>
+            <span><i class="bi bi-journal-bookmark"></i> {{ stats.total_species }} 个物种</span>
+            <span class="text-muted">|</span>
+            <span><i class="bi bi-calendar-event"></i> {{ stats.total_outings }} 次外拍</span>
+        </div>
+        {% endif %}
+
+        <div class="container" style="max-width: 900px;">
+            <div class="row g-4 justify-content-center">
+                <div class="col-md-4 col-sm-6">
+                    <a href="/import" class="entry-card">
+                        <div class="entry-icon entry-import"><i class="bi bi-cloud-upload"></i></div>
+                        <div class="entry-label">导入</div>
+                        <div class="entry-desc">将外拍照片导入系统，启动识别与评分。</div>
+                    </a>
+                </div>
+                <div class="col-md-4 col-sm-6">
+                    <a href="/gallery" class="entry-card">
+                        <div class="entry-icon entry-gallery"><i class="bi bi-images"></i></div>
+                        <div class="entry-label">图库</div>
+                        <div class="entry-desc">浏览、筛选、查看照片详情与历史外拍。</div>
+                    </a>
+                </div>
+                <div class="col-md-4 col-sm-6">
+                    <a href="/guide" class="entry-card">
+                        <div class="entry-icon entry-guide"><i class="bi bi-journal-bookmark"></i></div>
+                        <div class="entry-label">图鉴</div>
+                        <div class="entry-desc">查看已解锁物种、新增鸟种与拍摄分布。</div>
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        {% if recent_outing %}
+        <div class="mt-4">
+            <a href="/select?outing_id={{ recent_outing.id }}" class="btn btn-outline-primary rounded-pill">
+                <i class="bi bi-check2-square"></i> 继续处理：{{ recent_outing.name }}（{{ recent_outing.start_date }}）
             </a>
-            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
-                <span class="navbar-toggler-icon"></span>
-            </button>
-            <div class="collapse navbar-collapse" id="navbarNav">
-                <ul class="navbar-nav me-auto">
-                    <li class="nav-item"><a class="nav-link text-white {{ 'active bg-white bg-opacity-25 rounded' if not current_filter }}" href="/">相册</a></li>
-                    <li class="nav-item"><a class="nav-link text-white {{ 'active bg-white bg-opacity-25 rounded' if current_filter == 'uncertain' }}" href="/?filter=uncertain">⚠️ 待确认</a></li>
-                    <li class="nav-item"><a class="nav-link text-white" href="/admin">管理与任务</a></li>
-                    <li class="nav-item"><a class="nav-link text-white" href="/import"><i class="bi bi-cloud-upload"></i> 导入</a></li>
-                    <li class="nav-item"><a class="nav-link text-white" href="/settings"><i class="bi bi-gear-fill"></i> 设置</a></li>
-                </ul>
-
-                <!-- Filters Form -->
-                <form class="d-flex me-2" action="/" method="get">
-                    <input type="hidden" name="filter" value="{{ current_filter }}">
-                    <input type="hidden" name="q" value="{{ query }}">
-
-                    <select class="form-select me-2 bg-white" name="date" onchange="this.form.submit()" style="width: auto;">
-                        <option value="">All Dates</option>
-                        {% for d in available_dates %}
-                        <option value="{{ d }}" {{ 'selected' if current_date == d }}>{{ d }}</option>
-                        {% endfor %}
-                    </select>
-
-                    <select class="form-select me-2 bg-white" name="limit" onchange="this.form.submit()" style="width: auto;">
-                        <option value="20" {{ 'selected' if limit == 20 }}>20</option>
-                        <option value="50" {{ 'selected' if limit == 50 }}>50</option>
-                        <option value="100" {{ 'selected' if limit == 100 }}">100</option>
-                    </select>
-                </form>
-
-                <form class="d-flex" action="/" method="get">
-                    <input class="form-control me-2 bg-white border-0" type="search" name="q" placeholder="Search..." value="{{ query }}">
-                    <button class="btn btn-light" type="submit">Search</button>
-                </form>
-            </div>
         </div>
-    </nav>
-
-    <div class="container-fluid mt-4 px-4">
-        <div class="row">
-            <!-- 左侧侧边栏：分类树 -->
-            <div class="col-md-3">
-                <div class="card sidebar h-100">
-                    <div class="sidebar-header d-flex justify-content-between align-items-center">
-                        <h6 class="mb-0">物种分类</h6>
-                        <div class="btn-group btn-group-sm">
-                            <button class="btn btn-outline-secondary btn-sm" id="expand-all-btn" title="展开所有">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16">
-                                    <path d="M3 10a2 2 0 0 1 0-4v2a2 2 0 0 1 0 4h10a2 2 0 0 1 0-4v-2a2 2 0 0 1 0-4H3z"/>
-                                    <path d="M3 14a2 2 0 0 1 0 4v2a2 2 0 0 1 0 4h10a2 2 0 0 1 0-4v-2a2 2 0 0 1 0-4H3z"/>
-                                    <path d="M3 6a2 2 0 0 1 0 4v2a2 2 0 0 1 0 4h10a2 2 0 0 1 0-4V6a2 2 0 0 1 0-4H3z"/>
-                                </svg>
-                            </button>
-                            <button class="btn btn-outline-secondary btn-sm" id="collapse-all-btn" title="折叠所有">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16">
-                                    <path d="M6 10a2 2 0 0 1 0-4v2a2 2 0 0 1 0 4h4a2 2 0 0 1 0-4v-2a2 2 0 0 1 0-4H6z"/>
-                                    <path d="M6 14a2 2 0 0 1 0 4v2a2 2 0 0 1 0 4h4a2 2 0 0 1 0-4v-2a2 2 0 0 1 0-4H6z"/>
-                                    <path d="M6 6a2 2 0 0 1 0 4v2a2 2 0 0 1 0 4h4a2 2 0 0 1 0-4V6a2 2 0 0 1 0-4H6z"/>
-                                </svg>
-                            </button>
-                            <button class="btn btn-outline-secondary btn-sm" id="reset-tree-btn" title="复位">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16">
-                                    <path d="M8 3a5 5 0 1 0 0 10 5 5 0 0 0 0-10 0 5 0 0 0 0 10zm0 2.5a2.5 2.5 0 1 1 2.5 2.5 0 0 1 1-2.5 2.5 0 0 1 1 2.5 0 0 1 1-2.5zm0 5a2.5 2.5 0 1 1 2.5 2.5 0 0 1 1 2.5 2.5 0 0 1 1 2.5 0 0 1 1-2.5z"/>
-                                </svg>
-                            </button>
-                        </div>
-                    </div>
-                    <div class="sidebar-body">
-                        <div class="taxonomy-tree" id="taxonomy-tree">
-                            <div class="text-center text-muted py-3">加载中...</div>
-                        </div>
-                    </div>
-                    <div class="taxonomy-info" id="taxonomy-info"></div>
-                </div>
-            </div>
-
-            <!-- 右侧主内容：照片网格 -->
-            <div class="col-md-9">
-                <!-- Status Bar -->
-                <div class="status-bar">
-                    <span class="text-muted small">
-                        Showing {{ offset + 1 }}-{{ offset + photos|length }} of {{ total_count }} photos
-                        {% if current_date %} | Date: {{ current_date }} {% endif %}
-                        {% if query %} | Query: "{{ query }}" {% endif %}
-                    </span>
-                    <!-- 静态分页按钮 -->
-                    <div class="btn-group btn-group-sm">
-                        <a href="/?limit={{ limit }}&offset={{ prev_offset }}" class="btn btn-outline-secondary {% if not has_prev %}disabled{% endif %}">Previous</a>
-                        <a href="/?limit={{ limit }}&offset={{ next_offset }}" class="btn btn-outline-secondary {% if not has_next %}disabled{% endif %}">Next</a>
-                        {% if current_filter or query or current_date %}
-                        <a href="/" class="btn btn-outline-secondary">清除筛选</a>
-                        {% endif %}
-                    </div>
-                </div>
-
-                {% if not photos %}
-                    <div class="alert alert-info">No photos found. Try changing filters.</div>
-                {% endif %}
-
-                <div id="photo-gallery-container" class="photo-grid">
-                    {% for photo in photos %}
-                    {% set is_uncertain = (photo.primary_bird_cn == '待确认鸟种' or photo.scientific_name == 'Uncertain') %}
-                    {% set processed_path = photo.web_processed_path if photo.web_processed_path else '' %}
-                    {% set raw_path = photo.web_raw_path if photo.web_raw_path else '' %}
-                    <div class="photo-card">
-                        <div class="card h-100 shadow-sm {{ 'status-uncertain' if is_uncertain else '' }}">
-                            <div class="position-relative">
-                                <!-- Image Toggle Buttons -->
-                                <div class="btn-group btn-group-sm position-absolute top-0 start-0 m-1 view-toggle" style="z-index: 10;">
-                                    <button class="btn btn-dark {{ 'active' if processed_path else '' }}"
-                                            data-view="processed"
-                                            {{ 'disabled' if not processed_path }}>
-                                        裁切
-                                    </button>
-                                    <button class="btn btn-dark {{ 'active' if not processed_path and raw_path else '' }}"
-                                            data-view="raw"
-                                            {{ 'disabled' if not raw_path }}>
-                                        原图
-                                    </button>
-                                </div>
-                                <!-- Image -->
-                                <img src="{{ processed_path if processed_path else raw_path }}"
-                                     class="card-img-top main-img"
-                                     data-processed="{{ processed_path }}"
-                                     data-raw="{{ raw_path }}"
-                                     alt="{{ photo.primary_bird_cn }}"
-                                     loading="lazy">
-                            </div>
-
-                            <div class="card-body">
-                                <h5 class="card-title">
-                                    {{ photo.primary_bird_cn }}
-                                    {% if is_uncertain %}
-                                    <span class="badge badge-uncertain small align-top">?</span>
-                                    {% endif %}
-                                </h5>
-                                <h6 class="card-subtitle mb-2 text-muted fst-italic">{{ photo.scientific_name }}</h6>
-
-                                <div class="d-flex justify-content-between align-items-center mb-2">
-                                    <span class="location-tag">📍 {{ photo.location_tag }}</span>
-                                    <span class="badge bg-light text-dark border">
-                                        {{ ((photo.confidence_score or 0) * 100)|int }}%
-                                    </span>
-                                </div>
-
-                                <div class="path-info" title="{{ photo.filename }}">
-                                    📁 {{ photo.filename }}
-                                </div>
-
-                                <div class="d-grid gap-2 mt-3">
-                                    <button class="btn btn-sm btn-outline-primary edit-btn"
-                                            data-id="{{ photo.id }}"
-                                            data-sci="{{ photo.scientific_name }}"
-                                            data-cn="{{ photo.primary_bird_cn }}"
-                                            data-candidates='{{ photo.candidates_json | default("[]") }}'>
-                                        ✏️ Correct ID
-                                    </button>
-                                    <div class="btn-group btn-group-sm">
-                                        {% if processed_path %}
-                                        <a href="{{ processed_path }}" download class="btn btn-outline-secondary">Download Crop</a>
-                                        {% endif %}
-                                        {% if raw_path %}
-                                        <a href="{{ raw_path }}" download class="btn btn-outline-secondary">Original</a>
-                                        {% endif %}
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="card-footer text-muted small">
-                                {{ photo.captured_date }}
-                            </div>
-                        </div>
-                    </div>
-                    {% endfor %}
-                </div>
-
-                <!-- Pagination Bottom (由JavaScript动态渲染，静态占位符保留结构) -->
-                <div class="d-flex justify-content-center mt-4 mb-5" id="pagination-bottom">
-                </div>
-            </div>
-        </div>
+        {% endif %}
     </div>
 
-    <!-- Edit Modal -->
-    <div class="modal fade" id="editModal" tabindex="-1">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title">Correct Identification</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body">
-                    <input type="hidden" id="edit-photo-id">
-
-                    <!-- AI Candidates Section -->
-                    <div id="ai-candidates-section" class="mb-3 d-none">
-                        <label class="form-label text-muted small">AI Alternatives (Click to Select)</label>
-                        <div id="ai-candidates-list" class="list-group mb-3"></div>
-                        <hr>
-                    </div>
-
-                    <div class="mb-3">
-                        <label class="form-label">Search Manual Override</label>
-                        <input type="text" class="form-control" id="species-search" placeholder="Type name...">
-                        <div id="search-results" class="list-group mt-2"></div>
-                    </div>
-                </div>
-            </div>
-        </div>
+    <div class="workbench-footer">
+        飞羽志 · WingScribe — 为观鸟与鸟类摄影打造的本地工作台
     </div>
 
     <script src="/lib/js/bootstrap.bundle.min.js"></script>
-    <script>
-        // ========================
-        // 0. Configuration
-        // ========================
-        const CONFIG = {
-            defaultExpandLevel: 'none',  // 'none': 不展开任何节点, 'order': 展开到目, 'family': 展开到科, 'genus': 展开到属
-            includeEmptyNodes: false,    // 默认不显示空节点
-            rememberExpandState: true,  // 记住用户展开状态
-            expandStateKey: 'wingscribe_tree_expand_state'
-        };
-
-        // ========================
-        // 1. Taxonomy Tree Logic
-        // ========================
-        let currentTaxonomyFilter = null; // {type: 'order'|'family'|'genus'|'species', value: string}
-        let currentTaxonomyTree = null;
-        let currentOffset = 0;  // 当前分页偏移量
-        let currentLimit = {{ limit }};  // 从服务器同步limit值
-        let expandState = {};
-
-        // 加载保存的展开状态
-        function loadExpandState() {
-            try {
-                const saved = localStorage.getItem(CONFIG.expandStateKey);
-                if (saved) {
-                    expandState = JSON.parse(saved);
-                }
-            } catch (e) {
-                console.error('Failed to load expand state:', e);
-            }
-        }
-
-        // 保存展开状态
-        function saveExpandState() {
-            try {
-                localStorage.setItem(CONFIG.expandStateKey, JSON.stringify(expandState));
-            } catch (e) {
-                console.error('Failed to save expand state:', e);
-            }
-        }
-
-        function loadTaxonomyTree(includeEmpty = CONFIG.includeEmptyNodes, dateFilter = null, defaultLevel = CONFIG.defaultExpandLevel) {
-            const treeContainer = document.getElementById('taxonomy-tree');
-            treeContainer.innerHTML = '<div class="text-center text-muted py-3">加载中...</div>';
-
-            let url = `/api/taxonomy/tree?include_empty=${includeEmpty}`;
-            if (dateFilter) {
-                url += `&date=${dateFilter}`;
-            }
-
-            fetch(url)
-                .then(r => {
-                    if (!r.ok) throw new Error('Network response was not ok');
-                    return r.json();
-                })
-                .then(data => {
-                    // 验证数据格式
-                    if (!Array.isArray(data)) {
-                        throw new Error('Invalid data format: expected array');
-                    }
-                    currentTaxonomyTree = data;
-                    if (!data || data.length === 0) {
-                        treeContainer.innerHTML = '<div class="text-center text-muted py-3">暂无数据</div>';
-                        return;
-                    }
-                    renderTree(data, treeContainer, defaultLevel);
-                })
-                .catch(err => {
-                    console.error('Failed to load taxonomy tree:', err);
-                    treeContainer.innerHTML = '<div class="text-center text-danger py-3">加载失败: ' + err.message + '</div>';
-                });
-        }
-
-        function renderTree(orders, container, expandToLevel = CONFIG.defaultExpandLevel) {
-            container.innerHTML = '';
-            const ul = document.createElement('ul');
-            ul.className = 'list-unstyled ps-0';
-            ul.style.marginBottom = '0';
-
-            orders.forEach(order => {
-                const li = renderOrderNode(order, expandToLevel);
-                if (li) ul.appendChild(li);  // 只添加非null的节点
-            });
-
-            container.appendChild(ul);
-        }
-
-        function renderOrderNode(order, expandToLevel) {
-            // 检查是否应该渲染该节点（不包含空节点）
-            if (!order.photo_count && !CONFIG.includeEmptyNodes) {
-                return null;
-            }
-
-            const li = document.createElement('li');
-            li.style.marginBottom = '2px';
-
-            const node = document.createElement('div');
-            node.className = 'tree-node';
-            node.dataset.type = 'order';
-            node.dataset.value = order.order_cn;
-            node.dataset.sci = order.order_sci;
-            node.innerHTML = `
-                <span class="tree-toggle">▶</span>
-                ${order.order_cn}
-                <span class="node-count">(${order.photo_count})</span>
-            `;
-
-            // 检查是否应该展开
-            const shouldExpand = expandToLevel === 'order' || expandState[`order_${order.order_cn}`];
-            const childrenDiv = document.createElement('div');
-            childrenDiv.className = 'tree-children' + (shouldExpand ? ' expanded' : '');
-
-            // 渲染子节点
-            if (order.families && order.families.length > 0) {
-                order.families.forEach(family => {
-                    const familyLi = renderFamilyNode(family, order.order_sci, expandToLevel);
-                    if (familyLi) {
-                        childrenDiv.appendChild(familyLi);
-                    }
-                });
-            }
-
-            node.onclick = (e) => {
-                e.stopPropagation();
-                toggleNode(node);
-                filterByTaxonomy('order', order.order_cn, order.order_sci);
-            };
-
-            li.appendChild(node);
-            li.appendChild(childrenDiv);
-            return li;
-        }
-
-        function renderFamilyNode(family, orderSci, expandToLevel) {
-            // 检查是否应该渲染该节点
-            if (family.photo_count === 0 && !CONFIG.includeEmptyNodes) {
-                return null;
-            }
-
-            const li = document.createElement('li');
-            li.style.marginBottom = '2px';
-
-            const node = document.createElement('div');
-            node.className = 'tree-node';
-            node.dataset.type = 'family';
-            node.dataset.value = family.family_cn;
-            node.dataset.sci = family.family_sci;
-            node.innerHTML = `
-                <span class="tree-toggle">▶</span>
-                ${family.family_cn}
-                <span class="node-count">(${family.photo_count})</span>
-            `;
-
-            const shouldExpand = expandToLevel === 'family' || expandState[`family_${family.family_cn}`];
-            const childrenDiv = document.createElement('div');
-            childrenDiv.className = 'tree-children' + (shouldExpand ? ' expanded' : '');
-
-            if (family.genera && family.genera.length > 0) {
-                family.genera.forEach(genus => {
-                    const genusLi = renderGenusNode(genus, orderSci, family.family_sci, expandToLevel);
-                    if (genusLi) {
-                        childrenDiv.appendChild(genusLi);
-                    }
-                });
-            }
-
-            node.onclick = (e) => {
-                e.stopPropagation();
-                toggleNode(node);
-                filterByTaxonomy('family', family.family_cn, orderSci, node.dataset.sci);
-            };
-
-            li.appendChild(node);
-            li.appendChild(childrenDiv);
-            return li;
-        }
-
-        function renderGenusNode(genus, orderSci, familySci, expandToLevel) {
-            // 检查是否应该渲染该节点
-            if (genus.photo_count === 0 && !CONFIG.includeEmptyNodes) {
-                return null;
-            }
-
-            const li = document.createElement('li');
-            li.style.marginBottom = '2px';
-
-            const node = document.createElement('div');
-            node.className = 'tree-node';
-            node.dataset.type = 'genus';
-            node.dataset.value = genus.genus_cn;
-            node.dataset.sci = genus.genus_sci;
-            node.innerHTML = `
-                <span class="tree-toggle">▶</span>
-                ${genus.genus_cn}
-                <span class="node-count">(${genus.photo_count})</span>
-            `;
-
-            const shouldExpand = expandToLevel === 'genus' || expandState[`genus_${genus.genus_cn}`];
-            const childrenDiv = document.createElement('div');
-            childrenDiv.className = 'tree-children' + (shouldExpand ? ' expanded' : '');
-
-            if (genus.species && genus.species.length > 0) {
-                genus.species.forEach(sp => {
-                    const spLi = renderSpeciesNode(sp, orderSci, familySci, genus.genus_sci);
-                    if (spLi) childrenDiv.appendChild(spLi);
-                });
-            }
-
-            node.onclick = (e) => {
-                e.stopPropagation();
-                toggleNode(node);
-                filterByTaxonomy('genus', genus.genus_cn, orderSci, familySci, node.dataset.sci);
-            };
-
-            li.appendChild(node);
-            li.appendChild(childrenDiv);
-            return li;
-        }
-
-        function renderSpeciesNode(species, orderSci, familySci, genusSci) {
-            // 检查是否应该渲染该节点（photo_count 为 0 时不渲染）
-            if (species.photo_count === 0 && !CONFIG.includeEmptyNodes) {
-                return null;
-            }
-
-            const li = document.createElement('li');
-            li.style.marginBottom = '2px';
-
-            const node = document.createElement('div');
-            node.className = 'tree-node';
-            node.dataset.type = 'species';
-            node.dataset.value = species.scientific_name;
-            node.dataset.sci = species.scientific_name;
-            node.innerHTML = `
-                <span class="tree-toggle" style="visibility: hidden;">◦</span>
-                ${species.chinese_name}
-                <span class="node-count">(${species.photo_count})</span>
-            `;
-            node.onclick = (e) => {
-                e.stopPropagation();
-                highlightNode(node);
-                filterByTaxonomy('species', species.scientific_name, orderSci, familySci, genusSci);
-            };
-
-            li.appendChild(node);
-            return li;
-        }
-
-        function toggleNode(node) {
-            const children = node.nextElementSibling;
-            const toggle = node.querySelector('.tree-toggle');
-
-            if (children && children.classList.contains('tree-children')) {
-                const isExpanded = children.classList.toggle('expanded');
-                toggle.textContent = isExpanded ? '▼' : '▶';
-
-                // 保存展开状态
-                const type = node.dataset.type;
-                const value = node.dataset.value;
-                if (type && value) {
-                    expandState[`${type}_${value}`] = isExpanded;
-                    if (CONFIG.rememberExpandState) {
-                        saveExpandState();
-                    }
-                }
-            }
-        }
-
-        function highlightNode(node) {
-            // Remove active class from all nodes
-            document.querySelectorAll('.tree-node.active').forEach(n => n.classList.remove('active'));
-            // Add active class to current node
-            node.classList.add('active');
-        }
-
-        function filterByTaxonomy(type, value, orderSsci = null, familySsci = null, genusSsci = null) {
-            currentTaxonomyFilter = { type, value, orderSsci, familySsci, genusSsci };
-            currentOffset = 0;
-
-            // Build URL
-            let url = `/api/photos/by_taxonomy?`;
-
-            // 使用拉丁名（ssi）构建查询参数，避免中文编码问题
-            if (orderSsci) url += `order_sci=${encodeURIComponent(orderSsci)}&`;
-            if (familySsci) url += `family_sci=${encodeURIComponent(familySsci)}&`;
-            if (genusSsci) url += `genus_sci=${encodeURIComponent(genusSsci)}&`;
-            if (value && type === 'species') url += `scientific_name=${encodeURIComponent(value)}&`;
-            url += `limit=${currentLimit}&offset=0`;
-
-            // Update taxonomy info panel
-            updateTaxonomyInfo(type, value);
-
-            // Update photos grid
-            updatePhotoGrid(url);
-        }
-
-        function updateTaxonomyInfo(type, value) {
-            const infoPanel = document.getElementById('taxonomy-info');
-            if (!infoPanel) return;
-
-            let info = '';
-            switch (type) {
-                case 'order':
-                    info = `<strong>目:</strong> ${value}`;
-                    break;
-                case 'family':
-                    info = `<strong>科:</strong> ${value}`;
-                    break;
-                case 'genus':
-                    info = `<strong>属:</strong> ${value}`;
-                    break;
-                case 'species':
-                    info = `<strong>物种:</strong> ${value}`;
-                    break;
-            }
-            infoPanel.innerHTML = info;
-            infoPanel.classList.add('expanded');
-        }
-
-        function updatePhotoGrid(url) {
-            const photosContainer = document.getElementById('photo-gallery-container');
-            const statusContainer = document.querySelector('.status-bar');
-
-            if (statusContainer) {
-                statusContainer.innerHTML = '<span class="text-muted small">加载中...</span>';
-            }
-
-            if (photosContainer) {
-                photosContainer.innerHTML = '<div class="col-12 text-center py-5"><div class="spinner-border" role="status"></div></div>';
-            }
-
-            fetch(url)
-                .then(r => r.json())
-                .then(data => {
-                    renderPhotos(data.photos);
-                    updateStatus(data, url);
-                })
-                .catch(err => {
-                    console.error('Failed to load photos:', err);
-                    if (photosContainer) {
-                        photosContainer.innerHTML = '<div class="col-12 text-center text-danger py-5">加载失败</div>';
-                    }
-                });
-        }
-
-        function renderPhotos(photos) {
-            const photosContainer = document.getElementById('photo-gallery-container');
-            if (!photosContainer) return;
-
-            if (!photos || photos.length === 0) {
-                photosContainer.innerHTML = '<div class="text-center py-5 w-100"><div class="alert alert-warning">该分类下暂无照片</div></div>';
-                return;
-            }
-
-            let html = '';
-            for (let i = 0; i < photos.length; i++) {
-                const photo = photos[i];
-                const isUncertain = photo.primary_bird_cn === '待确认鸟种' || photo.scientific_name === 'Uncertain';
-                // 防止 null 值生成 /null 路径
-                const processedPath = photo.web_processed_path || '';
-                const rawPath = photo.web_raw_path || '';
-
-                html += `
-                <div class="photo-card">
-                    <div class="card h-100 shadow-sm ${isUncertain ? 'status-uncertain' : ''}">
-                        <div class="position-relative">
-                            <!-- Image Toggle Buttons -->
-                            <div class="btn-group btn-group-sm position-absolute top-0 start-0 m-1 view-toggle" style="z-index: 10;">
-                                <button class="btn btn-dark ${processedPath ? 'active' : ''}"
-                                        data-view="processed"
-                                        ${!processedPath ? 'disabled' : ''}>
-                                    裁切
-                                </button>
-                                <button class="btn btn-dark ${!processedPath && rawPath ? 'active' : ''}"
-                                        data-view="raw"
-                                        ${!rawPath ? 'disabled' : ''}>
-                                    原图
-                                </button>
-                            </div>
-                            <img src="${processedPath || rawPath}"
-                                 class="card-img-top main-img"
-                                 data-processed="${processedPath}"
-                                 data-raw="${rawPath}"
-                                 alt="${photo.primary_bird_cn}"
-                                 loading="lazy">
-                        </div>
-
-                        <div class="card-body">
-                            <h5 class="card-title">
-                                ${photo.primary_bird_cn}
-                                ${isUncertain ? '<span class="badge badge-uncertain small align-top">?</span>' : ''}
-                            </h5>
-                            <h6 class="card-subtitle mb-2 text-muted fst-italic">${photo.scientific_name}</h6>
-
-                            <div class="d-flex justify-content-between align-items-center mb-2">
-                                <span class="location-tag">📍 ${photo.location_tag}</span>
-                                <span class="badge bg-light text-dark border">
-                                    ${((photo.confidence_score || 0) * 100).toFixed(0)}%
-                                </span>
-                            </div>
-
-                            <div class="path-info" title="${photo.filename}">
-                                📁 ${photo.filename}
-                            </div>
-
-                            <div class="d-grid gap-2 mt-3">
-                                <button class="btn btn-sm btn-outline-primary edit-btn"
-                                        data-id="${photo.id}"
-                                        data-sci="${photo.scientific_name}"
-                                        data-cn="${photo.primary_bird_cn}"
-                                        data-candidates='${photo.candidates_json || "[]"}'>
-                                    ✏️ Correct ID
-                                </button>
-                                <div class="btn-group btn-group-sm">
-                                    ${processedPath ? `<a href="${processedPath}" download class="btn btn-outline-secondary">Download Crop</a>` : ''}
-                                    ${rawPath ? `<a href="${rawPath}" download class="btn btn-outline-secondary">Original</a>` : ''}
-                                </div>
-                            </div>
-                        </div>
-                        <div class="card-footer text-muted small">
-                            ${photo.captured_date}
-                        </div>
-                    </div>
-                </div>
-                `;
-            }
-
-            photosContainer.innerHTML = html;
-
-            // Re-attach event handlers
-            attachImageToggleHandlers();
-            attachEditModalHandlers();
-        }
-
-        function updateStatus(data, url) {
-            const statusContainer = document.querySelector('.status-bar');
-            if (!statusContainer) return;
-
-            const total = data.total_count || 0;
-            const offset = data.offset || currentOffset;
-            const limit = data.limit || currentLimit;
-            const showing = data.photos ? data.photos.length : 0;
-            const start = offset + 1;
-            const end = offset + showing;
-            const hasPrev = offset > 0;
-            const hasNext = offset + limit < total;
-
-            // 更新偏移量
-            currentOffset = offset;
-            currentLimit = limit;
-
-            statusContainer.innerHTML = `
-                <span class="text-muted small">
-                    Showing ${start}-${end} of ${total} photos
-                    ${currentTaxonomyFilter ? ` | 筛选: ${currentTaxonomyFilter.type} = ${currentTaxonomyFilter.value}` : ''}
-                </span>
-                <div class="btn-group btn-group-sm">
-                    <button class="btn btn-outline-secondary ${!hasPrev ? 'disabled' : ''}"
-                            onclick="changePage(-${limit})">Previous</button>
-                    <button class="btn btn-outline-secondary ${!hasNext ? 'disabled' : ''}"
-                            onclick="changePage(${limit})">Next</button>
-                    <button class="btn btn-outline-secondary" onclick="clearTaxonomyFilter()">清除筛选</button>
-                </div>
-            `;
-
-            // 同步渲染底部翻页按钮
-            renderPaginationBottom(hasPrev, hasNext);
-        }
-
-        function renderPaginationBottom(hasPrev, hasNext) {
-            const container = document.getElementById('pagination-bottom');
-            if (!container) return;
-
-            container.innerHTML = `
-                <div class="btn-group btn-group-sm">
-                    <button class="btn btn-outline-secondary ${!hasPrev ? 'disabled' : ''}"
-                            onclick="changePage(-${currentLimit})">Previous</button>
-                    <button class="btn btn-outline-secondary ${!hasNext ? 'disabled' : ''}"
-                            onclick="changePage(${currentLimit})">Next</button>
-                    <button class="btn btn-outline-secondary" onclick="clearTaxonomyFilter()">清除筛选</button>
-                </div>
-            `;
-        }
-
-        function clearTaxonomyFilter() {
-            currentTaxonomyFilter = null;
-            currentOffset = 0;
-            document.querySelectorAll('.tree-node.active').forEach(n => n.classList.remove('active'));
-
-            // 隐藏分类信息面板
-            const infoPanel = document.getElementById('taxonomy-info');
-            if (infoPanel) {
-                infoPanel.classList.remove('expanded');
-            }
-
-            // Reload page
-            window.location.href = '/';
-        }
-
-        // 分页函数
-        function changePage(delta) {
-            const newOffset = currentOffset + delta;
-            if (newOffset < 0) return;
-
-            if (currentTaxonomyFilter) {
-                // 带筛选的分页
-                const f = currentTaxonomyFilter;
-                let url = `/api/photos/by_taxonomy?`;
-                if (f.orderSsci) url += `order_sci=${encodeURIComponent(f.orderSsci)}&`;
-                if (f.familySsci) url += `family_sci=${encodeURIComponent(f.familySsci)}&`;
-                if (f.genusSsci) url += `genus_sci=${encodeURIComponent(f.genusSsci)}&`;
-                if (f.value && f.type === 'species') url += `scientific_name=${encodeURIComponent(f.value)}&`;
-                url += `limit=${currentLimit}&offset=${newOffset}`;
-                updatePhotoGrid(url);
-            } else {
-                // 无筛选，刷新页面
-                window.location.href = `/?limit=${currentLimit}&offset=${newOffset}`;
-            }
-        }
-
-        // 展开所有节点
-        function expandAll() {
-            document.querySelectorAll('.tree-children').forEach(el => el.classList.add('expanded'));
-            document.querySelectorAll('.tree-toggle').forEach(el => el.textContent = '▼');
-
-            // 保存展开状态
-            document.querySelectorAll('.tree-node[data-type]').forEach(node => {
-                const type = node.dataset.type;
-                const value = node.dataset.value;
-                if (type && value) {
-                    expandState[`${type}_${value}`] = true;
-                }
-            });
-            if (CONFIG.rememberExpandState) {
-                saveExpandState();
-            }
-        }
-
-        // 折叠所有节点
-        function collapseAll() {
-            document.querySelectorAll('.tree-children').forEach(el => el.classList.remove('expanded'));
-            document.querySelectorAll('.tree-toggle').forEach(el => el.textContent = '▶');
-
-            // 保存展开状态
-            expandState = {};
-            if (CONFIG.rememberExpandState) {
-                saveExpandState();
-            }
-        }
-
-        // 展开到目级别
-        function expandToOrderLevel() {
-            collapseAll();
-            document.querySelectorAll('.tree-node[data-type="order"]').forEach(node => {
-                const children = node.nextElementSibling;
-                if (children && children.classList.contains('tree-children')) {
-                    children.classList.add('expanded');
-                    const toggle = node.querySelector('.tree-toggle');
-                    if (toggle) toggle.textContent = '▼';
-                    const type = node.dataset.type;
-                    const value = node.dataset.value;
-                    if (type && value) {
-                        expandState[`${type}_${value}`] = true;
-                    }
-                }
-            });
-            if (CONFIG.rememberExpandState) {
-                saveExpandState();
-            }
-        }
-
-        // Show/Hide Empty Toggle
-        const showEmptyToggle = document.getElementById('show-empty-toggle');
-        if (showEmptyToggle) {
-            showEmptyToggle.addEventListener('change', (e) => {
-                loadTaxonomyTree(e.target.checked, null, CONFIG.defaultExpandLevel);
-            });
-        }
-
-        // 按钮事件绑定
-        document.getElementById('expand-all-btn').addEventListener('click', expandAll);
-        document.getElementById('collapse-all-btn').addEventListener('click', collapseAll);
-        document.getElementById('reset-tree-btn').addEventListener('click', () => {
-            loadTaxonomyTree(true, null, CONFIG.defaultExpandLevel);
-        });
-
-        // ========================
-        // 2. Image Toggle (Raw/Processed) via Buttons
-        // ========================
-        function attachImageToggleHandlers() {
-            // 按钮点击切换
-            document.querySelectorAll('.view-toggle .btn').forEach(btn => {
-                btn.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    const card = btn.closest('.photo-card');
-                    const img = card.querySelector('.main-img');
-                    const view = btn.dataset.view;
-
-                    // 更新按钮状态
-                    card.querySelectorAll('.view-toggle .btn').forEach(b => b.classList.remove('active'));
-                    btn.classList.add('active');
-
-                    // 切换图片
-                    if (view === 'raw' && img.dataset.raw) {
-                        img.src = img.dataset.raw;
-                    } else if (view === 'processed' && img.dataset.processed) {
-                        img.src = img.dataset.processed;
-                    } else if (img.dataset.raw) {
-                        img.src = img.dataset.raw;
-                    }
-                });
-            });
-        }
-
-        // ========================
-        // 3. Edit Modal Logic
-        // ========================
-        const editModal = new bootstrap.Modal(document.getElementById('editModal'));
-        let currentPhotoId = null;
-
-        function attachEditModalHandlers() {
-            document.querySelectorAll('.edit-btn').forEach(btn => {
-                btn.addEventListener('click', () => {
-                    currentPhotoId = btn.dataset.id;
-                    document.getElementById('edit-photo-id').value = currentPhotoId;
-                    document.getElementById('species-search').value = '';
-                    document.getElementById('search-results').innerHTML = '';
-
-                    const candidatesData = btn.dataset.candidates;
-                    const candidatesList = document.getElementById('ai-candidates-list');
-                    const candidatesSection = document.getElementById('ai-candidates-section');
-
-                    candidatesList.innerHTML = '';
-                    try {
-                        const cands = JSON.parse(candidatesData);
-                        if (cands && cands.length > 0) {
-                            candidatesSection.classList.remove('d-none');
-                            cands.forEach(c => {
-                                const confPct = (c.score * 100).toFixed(1);
-                                const item = document.createElement('button');
-                                item.className = 'list-group-item list-group-item-action d-flex justify-content-between align-items-center';
-                                item.innerHTML = `
-                                    <span>${c.cn} <small class="text-muted">(${c.sci})</small></span>
-                                    <span class="badge bg-secondary rounded-pill">${confPct}%</span>
-                                `;
-                                item.onclick = () => selectSpecies(c.sci, c.cn);
-                                candidatesList.appendChild(item);
-                            });
-                        } else {
-                            candidatesSection.classList.add('d-none');
-                        }
-                    } catch(e) {
-                        console.error("Failed to parse candidates", e);
-                        candidatesSection.classList.add('d-none');
-                    }
-
-                    editModal.show();
-                });
-            });
-        }
-
-        // ========================
-        // 4. Search Species
-        // ========================
-        const searchInput = document.getElementById('species-search');
-        let debounceTimer;
-
-        searchInput.addEventListener('input', (e) => {
-            clearTimeout(debounceTimer);
-            debounceTimer = setTimeout(() => {
-                const q = e.target.value;
-                if (q.length < 2) return;
-
-                fetch(`/api/search_species?q=${encodeURIComponent(q)}`)
-                    .then(r => r.json())
-                    .then(data => {
-                        const html = data.map(sp => `
-                            <a href="#" class="list-group-item list-group-item-action"
-                               onclick="selectSpecies('${sp.scientific_name}', '${sp.chinese_name}')">
-                               ${sp.chinese_name} <i>(${sp.scientific_name})</i>
-                            </a>
-                        `).join('');
-                        document.getElementById('search-results').innerHTML = html;
-                    });
-            }, 300);
-        });
-
-        window.selectSpecies = (sci, cn) => {
-            if (!confirm(`更新为 ${cn}?`)) return;
-
-            fetch('/api/update_label', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({
-                    photo_id: currentPhotoId,
-                    scientific_name: sci,
-                    chinese_name: cn
-                })
-            }).then(r => {
-                if (r.ok) location.reload();
-                else alert('更新失败');
-            });
-        };
-
-        // Initial load
-        loadExpandState();
-        loadTaxonomyTree(CONFIG.includeEmptyNodes, null, CONFIG.defaultExpandLevel);
-        attachImageToggleHandlers();
-        attachEditModalHandlers();  // 绑定初始页面的Correct ID按钮
-    </script>
 </body>
 </html>

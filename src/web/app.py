@@ -5,6 +5,8 @@ import os
 import gc
 import asyncio
 import json
+import platform
+import subprocess
 from contextlib import asynccontextmanager
 from pathlib import Path
 from urllib.parse import urlencode
@@ -226,7 +228,7 @@ def is_paths_configured():
     return bool(source_dir) and bool(output_root)
 
 @app.get("/", response_class=HTMLResponse)
-def index(request: Request, q: str = "", filter: str = "", date: str = "", limit: int = 50, offset: int = 0, skip_first_check: bool = False):
+def index(request: Request, skip_first_check: bool = False):
     # Check for first run or empty paths - redirect to settings if not configured
     if not skip_first_check and (is_first_run() or not is_paths_configured()):
         return templates.TemplateResponse(
@@ -234,73 +236,29 @@ def index(request: Request, q: str = "", filter: str = "", date: str = "", limit
             context={"request": request, "is_first_run": is_first_run()},
         )
 
-    conn = get_db_conn()
-    cursor = conn.cursor()
-    
-    query_parts = []
-    params = []
-    
-    if q:
-        query_parts.append('(primary_bird_cn LIKE ? OR scientific_name LIKE ? OR location_tag LIKE ? OR captured_date LIKE ?)')
-        params.extend([f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%"])
-    
-    if filter == 'uncertain':
-        query_parts.append('(primary_bird_cn = ? OR scientific_name = ?)')
-        params.extend(['待确认鸟种', 'Uncertain'])
-    
-    if date:
-        query_parts.append('captured_date = ?')
-        params.append(date)
-    
-    where_clause = "WHERE " + " AND ".join(query_parts) if query_parts else ""
-    
-    # Get total count for pagination
-    count_sql = f'SELECT COUNT(*) FROM photos {where_clause}'
-    cursor.execute(count_sql, params)
-    total_count = cursor.fetchone()[0]
-    
-    # Get photos
-    sql = f'SELECT * FROM photos {where_clause} ORDER BY captured_date DESC, id DESC LIMIT ? OFFSET ?'
-    cursor.execute(sql, params + [limit, offset])
-    photos = cursor.fetchall()
-    
-    display_photos = []
-    for p in photos:
-        p_dict = dict(p)
-        p_dict['web_raw_path'] = resolve_web_path(p_dict.get('original_path'))
-        p_dict['web_processed_path'] = resolve_processed_web_path(p_dict.get('file_path'))
-        display_photos.append(p_dict)
+    session = get_sqlalchemy_session()
+    try:
+        total_photos = session.query(func.count(Photo.id)).scalar() or 0
+        total_species = session.query(func.count(Species.id)).scalar() or 0
+        total_outings = session.query(func.count(Outing.id)).scalar() or 0
+        recent_outing = session.query(Outing).order_by(Outing.created_at.desc()).first()
 
-    # Get available dates for filter dropdown
-    cursor.execute("SELECT DISTINCT captured_date FROM photos ORDER BY captured_date DESC")
-    available_dates = [row[0] for row in cursor.fetchall() if row[0]]
-
-    conn.close()
-    
-    # Pagination helpers
-    has_next = (offset + limit) < total_count
-    has_prev = offset > 0
-    next_offset = offset + limit
-    prev_offset = max(0, offset - limit)
-    
-    return templates.TemplateResponse(
-        request, name="index.html",
+        return templates.TemplateResponse(
+            request, name="index.html",
             context={
-            "request": request,
-            "photos": display_photos,
-            "query": q,
-            "current_filter": filter,
-            "current_date": date,
-            "limit": limit,
-            "offset": offset,
-            "total_count": total_count,
-            "available_dates": available_dates,
-            "has_next": has_next,
-            "has_prev": has_prev,
-            "next_offset": next_offset,
-            "prev_offset": prev_offset,
-        },
-    )
+                "request": request,
+                "stats": {
+                    "total_photos": total_photos,
+                    "total_species": total_species,
+                    "total_outings": total_outings,
+                },
+                "recent_outing": recent_outing,
+            },
+        )
+    finally:
+        session.close()
+
+
 @app.get("/admin", response_class=HTMLResponse)
 def admin_dashboard(request: Request):
     return admin_service.admin_dashboard(request, templates, is_paths_configured, get_stats)
@@ -1189,6 +1147,46 @@ def get_photo_preview(photo_id: int):
         raise
     except Exception as e:
         logger.error(f"Failed to get photo preview {photo_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        session.close()
+
+
+@app.post("/api/photo/{photo_id}/open-directory")
+def open_photo_directory(photo_id: int):
+    """Open the directory containing the original photo file in the local file manager.
+
+    On Windows, this uses ``explorer /select,<path>`` to open the directory and select
+    the file. On other systems, it opens the parent directory via ``xdg-open``.
+    """
+    session = get_sqlalchemy_session()
+    try:
+        photo = session.query(Photo).filter(Photo.id == photo_id).first()
+        if not photo:
+            raise HTTPException(status_code=404, detail="Photo not found")
+
+        original_path = _resolve_original_path(photo)
+        if not original_path or not Path(original_path).exists():
+            raise HTTPException(status_code=404, detail="Original file not found")
+
+        directory = os.path.dirname(original_path)
+        system = platform.system()
+        try:
+            if system == "Windows":
+                subprocess.Popen(["explorer", "/select,", original_path])
+            elif system == "Darwin":
+                subprocess.Popen(["open", "--reveal", original_path])
+            else:
+                subprocess.Popen(["xdg-open", directory])
+        except OSError as e:
+            logger.error(f"Failed to open directory for photo {photo_id}: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to open directory: {e}")
+
+        return {"status": "success", "directory": directory, "system": system}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to open directory for photo {photo_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         session.close()

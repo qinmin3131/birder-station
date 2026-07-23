@@ -39,30 +39,7 @@
     </style>
 </head>
 <body>
-    <nav class="navbar navbar-expand-lg shadow-sm" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
-        <div class="container">
-            <a class="navbar-brand fw-bold text-white" href="/">
-                <span style="font-size: 1.3em;">🕊️</span> 飞羽志 <span class="opacity-75">| WingScribe</span>
-            </a>
-            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
-                <span class="navbar-toggler-icon"></span>
-            </button>
-            <div class="collapse navbar-collapse" id="navbarNav">
-                <ul class="navbar-nav me-auto">
-                    <li class="nav-item"><a class="nav-link text-white" href="/select">选片</a></li>
-                    <li class="nav-item"><a class="nav-link text-white active bg-white bg-opacity-25 rounded" href="/gallery">图库</a></li>
-                    <li class="nav-item"><a class="nav-link text-white" href="/guide">图鉴</a></li>
-                    <li class="nav-item"><a class="nav-link text-white" href="/admin">管理与任务</a></li>
-                    <li class="nav-item"><a class="nav-link text-white" href="/import"><i class="bi bi-cloud-upload"></i> 导入</a></li>
-                    <li class="nav-item"><a class="nav-link text-white" href="/settings"><i class="bi bi-gear-fill"></i> 设置</a></li>
-                </ul>
-                <form class="d-flex" action="/gallery" method="get">
-                    <input class="form-control me-2 bg-white border-0" type="search" name="q" placeholder="搜索鸟种/地点..." value="{{ query }}">
-                    <button class="btn btn-light" type="submit">搜索</button>
-                </form>
-            </div>
-        </div>
-    </nav>
+    {% include 'navbar.html' with active_page='gallery' %}
 
     <div class="container-fluid mt-4 px-4">
         <!-- 筛选栏 -->
@@ -283,6 +260,9 @@
                                     <ul class="list-group list-group-flush small bg-dark" id="photoDetailCandidates"></ul>
                                     <hr class="border-secondary">
                                     <div class="d-grid gap-2">
+                                        <button id="photoDetailOpenDir" class="btn btn-outline-light btn-sm" onclick="openPhotoDirectory()">
+                                            <i class="bi bi-folder"></i> 打开本地目录
+                                        </button>
                                         <a id="photoDetailRawDownload" href="#" class="btn btn-outline-light btn-sm" download>下载原图</a>
                                         <a id="photoDetailProcessedDownload" href="#" class="btn btn-outline-light btn-sm" download>下载裁切图</a>
                                     </div>
@@ -541,6 +521,23 @@
             } else {
                 document.exitFullscreen();
             }
+        }
+
+        function openPhotoDirectory() {
+            if (!detailCurrentData) return;
+            const photoId = detailCurrentData.photo.id;
+            fetch(`/api/photo/${photoId}/open-directory`, { method: 'POST' })
+                .then(r => {
+                    if (!r.ok) return r.json().then(d => Promise.reject(d));
+                    return r.json();
+                })
+                .then(data => {
+                    alert('已打开目录：' + data.directory);
+                })
+                .catch(e => {
+                    console.error(e);
+                    alert('打开目录失败：' + (e.detail || e.error || e.message || '未知错误'));
+                });
         }
 
         function goDetailPrev() {

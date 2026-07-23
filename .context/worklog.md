@@ -370,5 +370,21 @@
     - 验证：
       - 完整测试套件：`345 passed, 1 skipped`。
 
+20. **工作台首页与统一导航**
+    - 需求：用户表示原图本地已有，不需要批量导出；希望统一前端风格，将旧页面和导航统一成新导航，并新增工作台入口页面，引导语“今天拍到了什么鸟？”，入口按钮：导入、图库、图鉴，整体简洁、强引导。
+    - 后端：
+      - `src/web/app.py`：将 `/` 首页从旧的图片列表重做为工作台，返回 `stats`（照片、物种、外拍总数）和 `recent_outing`。
+      - 新增 `POST /api/photo/{photo_id}/open-directory`：使用系统文件管理器打开照片所在目录（Windows 用 `explorer /select,<path>`，macOS 用 `open --reveal`，Linux 用 `xdg-open`）。
+    - 前端：
+      - 新建 `src/web/templates/navbar.html`：统一 Bootstrap 导航栏，包含导入、选片、图库、图鉴、管理入口，并支持当前页面高亮。
+      - 重写 `src/web/templates/index.html`：工作台首页，包含品牌标语、统计胶囊、导入/图库/图鉴三个入口卡片，以及“继续处理最近外拍”按钮。
+      - 更新 `src/web/templates/import.html`、`select.html`、`gallery.html`、`guide.html`、`admin.html`、`admin_index.html`、`settings.html`：统一使用 `navbar.html`，移除各页面重复的旧导航。
+      - `src/web/templates/gallery.html`：照片详情弹窗中新增“打开本地目录”按钮，替换原批量导出/下载入口。
+    - 测试：
+      - 更新 `tests/test_web_app.py`：将旧 `test_index_builds_photo_page_and_pagination` 改为 `test_index_builds_workbench_with_stats`，验证新首页返回 `stats` 和 `recent_outing`。
+    - 验证：
+      - 完整测试套件：`345 passed, 1 skipped`。
+
 ### 待处理
-- [ ] 图库：批量导出 / 下载选中照片（`spec.md` §5.6）
+- [ ] 用户已明确取消“图库：批量导出 / 下载选中照片”（`spec.md` §5.6），改为打开本地目录按钮。
+

@@ -9,18 +9,7 @@
     <link rel="stylesheet" href="https://cdn.bootcdn.net/ajax/libs/bootstrap-icons/1.11.3/font/bootstrap-icons.min.css">
 </head>
 <body>
-    <nav class="navbar navbar-expand-lg shadow-sm" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
-        <div class="container">
-            <a class="navbar-brand fw-bold text-white" href="/">
-                <span style="font-size: 1.3em;">🕊️</span> 飞羽志 <span class="opacity-75">| WingScribe</span>
-            </a>
-            <div class="navbar-nav">
-                <a class="nav-link text-white" href="/">返回画廊</a>
-                <a class="nav-link text-white" href="/admin">管理</a>
-                <a class="nav-link text-white" href="/settings"><i class="bi bi-gear-fill"></i> 配置</a>
-            </div>
-        </div>
-    </nav>
+    {% include 'navbar.html' with active_page='admin' %}
 
     <div class="container mt-4">
         <h2>Index Photos</h2>
