@@ -52,7 +52,7 @@ class QualityScorer:
         "contrast": 0.10,
         "position": 0.10,
         "exposure": 0.10,
-        "pose": 0.20,
+        "subject_size": 0.20,
         "focus": 0.20,
     }
 
@@ -63,7 +63,7 @@ class QualityScorer:
     def __init__(
         self,
         weights: Optional[Dict[str, float]] = None,
-        pose_upgrade_threshold: Optional[Dict] = None,
+        subject_size_upgrade_threshold: Optional[Dict] = None,
     ):
         self.weights = dict(self.DEFAULT_WEIGHTS)
         if weights:
@@ -103,6 +103,19 @@ class QualityScorer:
         if max_dist == 0:
             return 0.0
         return max(0.0, 1.0 - center_dist / max_dist)
+
+    def calculate_subject_size_score(self, image_shape: Tuple[int, ...], bird_bbox: Tuple[int, int, int, int]) -> float:
+        """鸟占画面的比例，越大说明鸟越近/越突出，归一化到 0-1。"""
+        h, w = image_shape[:2]
+        if w <= 0 or h <= 0:
+            return 0.0
+        x, y, bw, bh = bird_bbox
+        if bw <= 0 or bh <= 0:
+            return 0.0
+        image_area = w * h
+        if image_area == 0:
+            return 0.0
+        return min((bw * bh) / image_area, 1.0)
 
     def calculate_exposure(self, image: np.ndarray) -> float:
         """直方图相对中间灰度的偏离度,越居中得分越高,归一化到 0-1。"""
@@ -156,7 +169,7 @@ class QualityScorer:
             "contrast": self.calculate_contrast(image),
             "position": self.calculate_position(image.shape, bird_bbox),
             "exposure": self.calculate_exposure(image),
-            "pose": self.calculate_pose_score(visibility),
+            "subject_size": self.calculate_subject_size_score(image.shape, bird_bbox),
             "focus": self.calculate_focus_score(focus_points, bird_bbox),
         }
         weighted = sum(details[dim] * self.weights[dim] for dim in self.weights)
@@ -165,10 +178,9 @@ class QualityScorer:
     def score_from_path(self, image_path: str, bird_bbox: Tuple[int, int, int, int]) -> Dict:
         """从图像路径和鸟框计算 6 维画质评分。
 
-        自动调用 PoseDetector 和 FocusParser 获取姿态与焦点信息。
+        自动调用 FocusParser 获取焦点信息,主体占比由鸟框与画面面积比计算。
         无 AF 对焦点时不进行中心兜底,focus 维度返回中性分。
         """
-        from .pose import PoseDetector
         from .focus import FocusParser
 
         image = cv2.imread(image_path)
@@ -177,10 +189,9 @@ class QualityScorer:
             return {"score": 0, "details": {dim: 0.0 for dim in self.DEFAULT_WEIGHTS}}
 
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        pose = PoseDetector()
         focus_parser = FocusParser()
 
-        visibility = pose.detect_visibility(image, bird_bbox)
+        visibility = {"subject_size": self.calculate_subject_size_score(image.shape, bird_bbox)}
         focus_points = focus_parser.parse_af_points(image_path)
 
         return self.calculate_quality_score(image, bird_bbox, visibility, focus_points)

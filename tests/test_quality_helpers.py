@@ -8,26 +8,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from core.pose import PoseDetector
 from core.focus import FocusParser
 from core.quality import QualityScorer
-
-
-class TestPoseDetector:
-    def test_returns_five_visibility_keys(self):
-        img = np.zeros((100, 200, 3), dtype=np.uint8)
-        detector = PoseDetector()
-        vis = detector.detect_visibility(img, (50, 25, 100, 50))
-        assert set(vis.keys()) == {"head", "eye", "body", "tail", "wing"}
-        for v in vis.values():
-            assert 0.0 <= v <= 1.0
-
-    def test_front_view_returns_higher_head_and_eye_visibility(self):
-        detector = PoseDetector()
-        # Square-ish bbox suggests front view
-        vis = detector.detect_visibility(np.zeros((100, 100, 3), dtype=np.uint8), (25, 25, 50, 50))
-        assert vis["head"] >= vis["tail"]
-        assert vis["eye"] >= 0.5
 
 
 class TestFocusParser:
@@ -46,7 +28,7 @@ class TestFocusParser:
 
 
 class TestQualityScorerScoreFromPath:
-    def test_score_from_path_uses_pose_and_focus(self, tmp_path):
+    def test_score_from_path_uses_subject_size_and_focus(self, tmp_path):
         img_path = tmp_path / "test.jpg"
         cv2.imwrite(str(img_path), np.ones((200, 400, 3), dtype=np.uint8) * 128)
 
@@ -55,9 +37,11 @@ class TestQualityScorerScoreFromPath:
         assert "score" in result
         assert "details" in result
         assert set(result["details"].keys()) == {
-            "clarity", "contrast", "position", "exposure", "pose", "focus"
+            "clarity", "contrast", "position", "exposure", "subject_size", "focus"
         }
         assert 0 <= result["score"] <= 100
+        # bbox 占画面 1/4，subject_size 应为 0.25
+        assert result["details"]["subject_size"] == pytest.approx(0.25, abs=1e-6)
 
     def test_score_from_path_returns_reasonable_scores_for_uniform_image(self, tmp_path):
         img_path = tmp_path / "test.jpg"
@@ -67,3 +51,5 @@ class TestQualityScorerScoreFromPath:
         # Uniform image has low clarity and low contrast
         assert result["details"]["clarity"] < 0.2
         assert result["details"]["contrast"] < 0.2
+        # centered 50% bbox -> subject_size = 0.25
+        assert result["details"]["subject_size"] == pytest.approx(0.25, abs=1e-6)
