@@ -54,8 +54,18 @@
         }
         .species-candidates {
             display: none;
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            z-index: 1060;
+            box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.5);
             border: 1px solid #6c757d;
             border-radius: 0.25rem;
+            margin-top: 2px;
+            max-height: 160px;
+            overflow-y: auto;
+            background: #212529;
         }
         .species-candidates.show {
             display: block;
@@ -245,15 +255,17 @@
                                 <ul class="list-group list-group-flush small bg-dark" id="reviewCandidates"></ul>
                                 <hr class="border-secondary">
                                 <h6 class="card-subtitle mb-2 text-white-50">修正鸟种（C 键聚焦）</h6>
-                                <div class="input-group input-group-sm mb-2">
-                                    <input type="text" class="form-control form-control-sm bg-dark text-white border-secondary" id="reviewSpeciesInput"
-                                           placeholder="输入中文名或学名" autocomplete="off"
-                                           oninput="searchReviewSpecies(this.value)"
-                                           onfocus="showReviewSpeciesCandidates()"
-                                           onblur="hideReviewSpeciesCandidatesDelayed()">
-                                    <button class="btn btn-outline-secondary" type="button" onclick="confirmReviewSpecies()">确认</button>
+                                <div class="position-relative mb-2">
+                                    <div class="input-group input-group-sm">
+                                        <input type="text" class="form-control form-control-sm bg-dark text-white border-secondary" id="reviewSpeciesInput"
+                                               placeholder="输入中文名或学名" autocomplete="off"
+                                               oninput="searchReviewSpecies(this.value)"
+                                               onfocus="showReviewSpeciesCandidates()"
+                                               onblur="hideReviewSpeciesCandidatesDelayed()">
+                                        <button class="btn btn-outline-secondary" type="button" onclick="confirmReviewSpecies()">确认</button>
+                                    </div>
+                                    <div class="list-group list-group-flush small species-candidates" id="reviewSpeciesCandidates"></div>
                                 </div>
-                                <div class="list-group list-group-flush small bg-dark border-secondary species-candidates" id="reviewSpeciesCandidates" style="max-height: 120px; overflow-y: auto;"></div>
                                 <hr class="border-secondary">
                                 <h6 class="card-subtitle mb-2 text-white-50">操作</h6>
                                 <div class="d-grid gap-2">
