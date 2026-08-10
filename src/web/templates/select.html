@@ -17,6 +17,20 @@
         @media (max-width: 767.98px) { .photo-grid { grid-template-columns: repeat(2, 1fr); } }
         .selected-card { border: 3px solid #198754; box-shadow: 0 0 0 0.2rem rgba(25, 135, 84, 0.25); }
         .rejected-card { opacity: 0.55; }
+        .best-photo-card { border: 3px solid #ffc107; position: relative; }
+        .best-photo-card::after {
+            content: '最佳';
+            position: absolute;
+            top: 4px;
+            right: 4px;
+            background: #ffc107;
+            color: #000;
+            font-size: 12px;
+            padding: 2px 6px;
+            border-radius: 4px;
+            z-index: 5;
+            font-weight: bold;
+        }
         .group-header { background: #f8f9fa; border-left: 4px solid #0d6efd; padding: 8px 12px; margin: 16px 0 8px; border-radius: 4px; }
         .score-bar { height: 4px; border-radius: 2px; background: #e9ecef; margin-top: 4px; overflow: hidden; }
         .score-fill { height: 100%; background: linear-gradient(90deg, #dc3545, #ffc107, #198754); }
@@ -121,7 +135,7 @@
             <div class="photo-card" id="photo-card-{{ photo.id }}" data-photo-id="{{ photo.id }}"
                  data-group-index="{{ global_group_index }}" data-photo-index="{{ loop.index0 }}"
                  data-group-id="{{ group.group_id or 0 }}">
-                <div class="card h-100 shadow-sm {{ 'selected-card' if photo.is_selected else '' }} {{ 'rejected-card' if photo.is_rejected else '' }}"
+                <div class="card h-100 shadow-sm {{ 'selected-card' if photo.is_selected else '' }} {{ 'rejected-card' if photo.is_rejected else '' }} {{ 'best-photo-card' if group.best_photo_id == photo.id else '' }}"
                      data-id="{{ photo.id }}"
                      data-score="{{ photo.quality_score|default(0) }}">
                     <div class="position-relative">
