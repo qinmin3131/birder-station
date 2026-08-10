@@ -542,6 +542,10 @@
 
             resetButtons();
 
+            // Pre-fill species candidates when opening review
+            document.getElementById('reviewSpeciesInput').value = '';
+            searchReviewSpecies('');
+
             const canvas = document.getElementById('reviewCanvas');
             const img = new Image();
             img.src = `/api/photo/${photo.id}/preview`;
@@ -687,52 +691,75 @@
         let reviewSpeciesMatches = [];
         let selectedReviewSpecies = null;
 
+        function renderReviewSpeciesMatches() {
+            const list = document.getElementById('reviewSpeciesCandidates');
+            list.innerHTML = '';
+            reviewSpeciesMatches.forEach((s) => {
+                const sci = s.scientific_name || s.sci || '';
+                const cn = s.chinese_name || s.cn || '';
+                const display = cn ? `${cn} (${sci})` : sci;
+                const item = document.createElement('button');
+                item.className = 'list-group-item list-group-item-action list-group-item-dark text-white-50 small py-1';
+                item.type = 'button';
+                item.textContent = display;
+                item.onclick = () => {
+                    selectedReviewSpecies = s;
+                    document.getElementById('reviewSpeciesInput').value = cn || sci;
+                    list.innerHTML = '';
+                };
+                list.appendChild(item);
+            });
+        }
+
         function searchReviewSpecies(query) {
             const list = document.getElementById('reviewSpeciesCandidates');
             list.innerHTML = '';
             reviewSpeciesMatches = [];
             selectedReviewSpecies = null;
-            if (!query || query.length < 2) return;
+
+            // Empty input: show top 5 recognition candidates
+            if (!query || query.trim().length < 2) {
+                if (currentReviewData && currentReviewData.candidates) {
+                    reviewSpeciesMatches = currentReviewData.candidates.slice(0, 5).map(c => ({
+                        scientific_name: c.scientific_name || c.sci || '',
+                        chinese_name: c.chinese_name || c.cn || '',
+                    }));
+                    renderReviewSpeciesMatches();
+                }
+                return;
+            }
+
             fetch(`/api/search-species?q=${encodeURIComponent(query)}`)
                 .then(r => r.json())
                 .then(data => {
                     reviewSpeciesMatches = data.results || [];
-                    reviewSpeciesMatches.forEach((s, idx) => {
-                        const item = document.createElement('button');
-                        item.className = 'list-group-item list-group-item-action list-group-item-dark text-white-50 small py-1';
-                        item.type = 'button';
-                        item.textContent = `${s.chinese_name || s.scientific_name} (${s.scientific_name})`;
-                        item.onclick = () => {
-                            selectedReviewSpecies = s;
-                            document.getElementById('reviewSpeciesInput').value = s.chinese_name || s.scientific_name;
-                            list.innerHTML = '';
-                        };
-                        list.appendChild(item);
-                    });
+                    renderReviewSpeciesMatches();
                 })
                 .catch(e => console.error(e));
         }
 
         function confirmReviewSpecies() {
             if (!selectedReviewSpecies) {
-                alert('请先输入并选择一个候选鸟种');
+                alert('请从候选列表中选择鸟种');
                 return;
             }
             if (!currentReviewPhotoId) return;
+            const sci = selectedReviewSpecies.scientific_name || selectedReviewSpecies.sci || '';
+            const cn = selectedReviewSpecies.chinese_name || selectedReviewSpecies.cn || '';
             fetch(`/api/photo/${currentReviewPhotoId}/correct-species`, {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({
-                    scientific_name: selectedReviewSpecies.scientific_name,
-                    chinese_name: selectedReviewSpecies.chinese_name,
+                    scientific_name: sci,
+                    chinese_name: cn,
                     write_metadata: true
                 })
             })
                 .then(r => r.json())
                 .then(data => {
                     if (data.status === 'success') {
-                        document.getElementById('reviewBirdName').textContent = selectedReviewSpecies.chinese_name || selectedReviewSpecies.scientific_name;
-                        document.getElementById('reviewSciName').textContent = selectedReviewSpecies.scientific_name;
+                        document.getElementById('reviewBirdName').textContent = cn || sci;
+                        document.getElementById('reviewSciName').textContent = sci;
                         document.getElementById('reviewSpeciesInput').value = '';
                         document.getElementById('reviewSpeciesCandidates').innerHTML = '';
                         selectedReviewSpecies = null;
@@ -743,7 +770,7 @@
                 })
                 .catch(e => {
                     console.error(e);
-                    alert('修正失败');
+                    alert('修正失败：' + (e.message || '未知错误'));
                 });
         }
 
