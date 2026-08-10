@@ -221,3 +221,29 @@ def test_preview_decodes_raw_to_temp_jpg(client, sample_raw, monkeypatch):
 def test_preview_returns_404_when_photo_missing(client):
     response = client.get("/api/photo/9999/preview")
     assert response.status_code == 404
+
+
+def test_review_falls_back_to_zero_when_quality_data_missing(client, sample_jpg, monkeypatch):
+    """当照片没有 quality_score/quality_details 且无 bbox 时，应返回 0 和全 0 分项。"""
+    session = web_app.get_sqlalchemy_session()
+    photo = _create_photo(
+        session,
+        original_path=str(sample_jpg),
+        quality_score=None,
+        quality_details=None,
+        bird_bbox=None,
+    )
+    photo_id = photo.id
+    session.close()
+
+    response = client.get(f"/api/photo/{photo_id}/review")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["photo"]["quality_score"] == 0
+    assert data["quality_details"] == {
+        "clarity": 0.0,
+        "contrast": 0.0,
+        "exposure": 0.0,
+        "subject_size": 0.0,
+        "iso": 0.0,
+    }

@@ -1037,6 +1037,7 @@ def get_photo_review(photo_id: int):
             except Exception:
                 pass
 
+        quality_score: Optional[int] = photo.quality_score
         quality_details: Dict[str, Any] = {}
         if photo.quality_details:
             try:
@@ -1044,8 +1045,7 @@ def get_photo_review(photo_id: int):
             except Exception:
                 pass
 
-        # Recompute quality score with the latest scorer (including ISO dimension) if bbox is available.
-        quality_score = photo.quality_score
+        # Always attempt to recompute with the latest scorer if bbox is available.
         if photo.bird_bbox and original_path and Path(original_path).exists():
             try:
                 bbox = photo.bird_bbox
@@ -1058,6 +1058,25 @@ def get_photo_review(photo_id: int):
                     quality_details = recomputed["details"]
             except Exception as e:
                 logger.debug(f"Recompute quality score for review failed: {e}")
+
+        # Fallbacks: ensure frontend always has a score and details to render.
+        if quality_score is None:
+            quality_score = 0
+        if not quality_details:
+            quality_details = {dim: 0.0 for dim in QualityScorer.DEFAULT_WEIGHTS}
+
+        # Normalize details to 0-1 scale (older data may be stored as 0-100).
+        normalized_details: Dict[str, float] = {}
+        for dim in QualityScorer.DEFAULT_WEIGHTS:
+            v = quality_details.get(dim, 0.0)
+            try:
+                v = float(v)
+            except (TypeError, ValueError):
+                v = 0.0
+            if v > 1.0:
+                v = v / 100.0
+            normalized_details[dim] = min(max(v, 0.0), 1.0)
+        quality_details = normalized_details
 
         prev_photo_id, next_photo_id = _get_review_neighbors(session, photo)
 
