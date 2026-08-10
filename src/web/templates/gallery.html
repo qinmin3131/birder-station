@@ -39,7 +39,7 @@
     </style>
 </head>
 <body>
-    {% include 'navbar.html' with active_page='gallery' %}
+    {% with active_page='gallery' %}{% include 'navbar.html' %}{% endwith %}
 
     <div class="container-fluid mt-4 px-4">
         <!-- 筛选栏 -->
@@ -246,7 +246,10 @@
                                     <h4 id="photoDetailBirdName" class="card-title">--</h4>
                                     <p class="mb-1"><span class="text-white-50">学名：</span><span id="photoDetailSciName">--</span></p>
                                     <p class="mb-1"><span class="text-white-50">置信度：</span><span id="photoDetailConfidence">--</span></p>
-                                    <p class="mb-1"><span class="text-white-50">质量总分：</span><span id="photoDetailQualityScore">--</span></p>
+                                    <p class="mb-1 d-flex align-items-center gap-2"><span class="text-white-50">质量总分：</span><span id="photoDetailQualityScore" class="badge">--</span></p>
+                                    <div class="progress mb-2" style="height: 8px;">
+                                        <div id="photoDetailQualityScoreBar" class="progress-bar" role="progressbar" style="width: 0%;"></div>
+                                    </div>
                                     <hr class="border-secondary">
                                     <h6 class="card-subtitle mb-2 text-white-50">EXIF / 元数据</h6>
                                     <table class="table table-dark table-sm small mb-0">
@@ -367,7 +370,14 @@
             document.getElementById('photoDetailBirdName').textContent = photo.primary_bird_cn || '未识别';
             document.getElementById('photoDetailSciName').textContent = photo.scientific_name || '--';
             document.getElementById('photoDetailConfidence').textContent = photo.confidence_score ? (photo.confidence_score * 100).toFixed(1) + '%' : '--';
-            document.getElementById('photoDetailQualityScore').textContent = photo.quality_score || '--';
+            const detailQScoreNum = photo.quality_score ?? 0;
+            const detailQScoreText = photo.quality_score ?? '--';
+            document.getElementById('photoDetailQualityScore').textContent = detailQScoreText;
+            const detailQScoreBadge = document.getElementById('photoDetailQualityScore');
+            detailQScoreBadge.className = `badge ${detailQScoreNum >= 80 ? 'bg-success' : detailQScoreNum >= 60 ? 'bg-warning' : 'bg-danger'}`;
+            const detailQScoreBar = document.getElementById('photoDetailQualityScoreBar');
+            detailQScoreBar.style.width = `${detailQScoreNum}%`;
+            detailQScoreBar.className = `progress-bar ${detailQScoreNum >= 80 ? 'bg-success' : detailQScoreNum >= 60 ? 'bg-warning' : 'bg-danger'}`;
 
             document.getElementById('photoDetailReviewLink').href = `/select?photo_id=${photo.id}`;
             const rawPath = galleryPhotos[detailPhotoIndex]?.web_raw_path || '';
@@ -420,7 +430,7 @@
                             <span>${pct.toFixed(1)}</span>
                         </div>
                         <div class="progress" style="height: 6px;">
-                            <div class="progress-bar" role="progressbar" style="width: ${pct}%"></div>
+                            <div class="progress-bar ${pct >= 80 ? 'bg-success' : pct >= 60 ? 'bg-warning' : 'bg-danger'}" role="progressbar" style="width: ${pct}%"></div>
                         </div>`;
                     qdContainer.appendChild(div);
                 }

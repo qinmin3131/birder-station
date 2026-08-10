@@ -41,7 +41,7 @@
     </style>
 </head>
 <body>
-    {% include 'navbar.html' with active_page='select' %}
+    {% with active_page='select' %}{% include 'navbar.html' %}{% endwith %}
 
     <div class="container-fluid mt-4 px-4">
         <div class="row mb-3">
@@ -198,10 +198,13 @@
                                     <span class="text-white-50">置信度：</span>
                                     <span id="reviewConfidence">--</span>
                                 </p>
-                                <p class="mb-1">
+                                <p class="mb-1 d-flex align-items-center gap-2">
                                     <span class="text-white-50">质量总分：</span>
-                                    <span id="reviewQualityScore">--</span>
+                                    <span id="reviewQualityScore" class="badge">--</span>
                                 </p>
+                                <div class="progress mb-2" style="height: 8px;">
+                                    <div id="reviewQualityScoreBar" class="progress-bar" role="progressbar" style="width: 0%;"></div>
+                                </div>
                                 <hr class="border-secondary">
                                 <h6 class="card-subtitle mb-2 text-white-50">质量分项</h6>
                                 <div id="reviewQualityDetails"></div>
@@ -488,7 +491,14 @@
             document.getElementById('reviewBirdName').textContent = photo.primary_bird_cn || '未识别';
             document.getElementById('reviewSciName').textContent = photo.scientific_name || '--';
             document.getElementById('reviewConfidence').textContent = photo.confidence_score ? (photo.confidence_score * 100).toFixed(1) + '%' : '--';
-            document.getElementById('reviewQualityScore').textContent = photo.quality_score || '--';
+            const qScoreNum = photo.quality_score ?? 0;
+            const qScoreText = photo.quality_score ?? '--';
+            document.getElementById('reviewQualityScore').textContent = qScoreText;
+            const qScoreBadge = document.getElementById('reviewQualityScore');
+            qScoreBadge.className = `badge ${qScoreNum >= 80 ? 'bg-success' : qScoreNum >= 60 ? 'bg-warning' : 'bg-danger'}`;
+            const qScoreBar = document.getElementById('reviewQualityScoreBar');
+            qScoreBar.style.width = `${qScoreNum}%`;
+            qScoreBar.className = `progress-bar ${qScoreNum >= 80 ? 'bg-success' : qScoreNum >= 60 ? 'bg-warning' : 'bg-danger'}`;
 
             const stars = photo.rating === -1 ? '❌ 淘汰' : (photo.rating ? '⭐'.repeat(photo.rating) : '未评分');
             document.getElementById('reviewMetaLine').textContent = `${photo.captured_date || ''} · ${photo.location_tag || ''} · ${photo.width || '?'}×${photo.height || '?'} · ${stars}`;
@@ -509,7 +519,7 @@
                             <span>${pct.toFixed(1)}</span>
                         </div>
                         <div class="progress" style="height: 6px;">
-                            <div class="progress-bar" role="progressbar" style="width: ${pct}%"></div>
+                            <div class="progress-bar ${pct >= 80 ? 'bg-success' : pct >= 60 ? 'bg-warning' : 'bg-danger'}" role="progressbar" style="width: ${pct}%"></div>
                         </div>
                     `;
                     qdContainer.appendChild(div);
