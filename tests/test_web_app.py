@@ -1,10 +1,15 @@
 import asyncio
+import sqlite3
 from pathlib import Path
 from unittest.mock import ANY
 
 import pytest
 import yaml
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
+from src.db.models import Base, Photo
 from src.metadata.ioc_manager import IOCManager
 from src.web import app as web_app
 
@@ -1023,3 +1028,57 @@ def test_get_photos_by_taxonomy_uses_scientific_fallback_filters(monkeypatch):
 
     assert conn.cursor_obj.executed[0][1] == ["Passeriformes", "Paridae", "Parus"]
     assert conn.cursor_obj.executed[1][1] == ["Passeriformes", "Paridae", "Parus", 5, 0]
+
+
+def test_correct_species_rejects_not_in_checklist(tmp_path, monkeypatch):
+    """修正鸟种时，若物种不在 IOC 名录应拒绝。"""
+    db_path = tmp_path / "test_correct.db"
+    engine = create_engine(f"sqlite:///{db_path}")
+    Base.metadata.create_all(engine)
+    SessionLocal = sessionmaker(bind=engine)
+
+    # Ensure taxonomy table exists (created by IOCManager, not SQLAlchemy models)
+    init_manager = IOCManager(str(db_path), source_base_dir=str(tmp_path), processed_base_dir=str(tmp_path))
+    init_manager.close()
+
+    # Seed taxonomy with a known species directly into the IOC checklist
+    conn = sqlite3.connect(str(db_path))
+    conn.execute(
+        "INSERT INTO taxonomy (scientific_name, chinese_name, family_cn, order_cn, genus_cn, family_sci, order_sci, genus_sci, english_name) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        ("Passer montanus", "麻雀", "雀科", "雀形目", "麻雀属", "Passeridae", "Passeriformes", "Passer", "Eurasian Tree Sparrow")
+    )
+    conn.commit()
+    conn.close()
+
+    monkeypatch.setattr(web_app, "db_path", db_path)
+    monkeypatch.setattr(web_app, "source_dir", tmp_path)
+    monkeypatch.setattr(web_app, "processed_dir", tmp_path)
+    monkeypatch.setattr(web_app, "config", {"paths": {"source_dir": str(tmp_path)}})
+
+    def _get_session():
+        return SessionLocal()
+    monkeypatch.setattr(web_app, "get_sqlalchemy_session", _get_session)
+
+    session = _get_session()
+    photo = Photo(
+        file_path="bird.jpg",
+        filename="bird.jpg",
+        original_path=None,
+        primary_bird_cn="未知",
+        scientific_name="Unknown",
+        confidence_score=0.5,
+    )
+    session.add(photo)
+    session.commit()
+    photo_id = photo.id
+    session.close()
+
+    with TestClient(web_app.app) as c:
+        response = c.post(f"/api/photo/{photo_id}/correct-species", json={
+            "scientific_name": "Not In Checklist",
+            "chinese_name": "",
+            "write_metadata": False,
+        })
+    assert response.status_code == 400
+    assert "not found in ioc checklist" in response.json()["detail"].lower()

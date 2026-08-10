@@ -1320,19 +1320,21 @@ def correct_photo_species(photo_id: int, request: CorrectSpeciesRequest):
         if not new_name:
             raise HTTPException(status_code=400, detail="Scientific name is required")
 
-        old_name = photo.scientific_name
-        if old_name == new_name:
-            return {"status": "success", "message": "No change", "photo_id": photo_id}
-
-        # Look up taxonomy for Chinese name and family if not provided
-        from src.metadata.ioc_manager import create_db_manager
+        # Validate species exists in IOC checklist and fetch Chinese name
         try:
             manager = create_db_manager()
             bird_info = manager.get_bird_info(new_name)
         finally:
             manager.close()
 
-        new_cn = (request.chinese_name or (bird_info.get('chinese_name') if bird_info else '') or new_name).strip()
+        if not bird_info:
+            raise HTTPException(status_code=400, detail=f"Species {new_name} not found in IOC checklist")
+
+        old_name = photo.scientific_name
+        if old_name == new_name:
+            return {"status": "success", "message": "No change", "photo_id": photo_id}
+
+        new_cn = (request.chinese_name or bird_info.get('chinese_name', '') or new_name).strip()
 
         # Update candidate JSON so Top1 reflects the corrected species
         candidates = _load_json(photo.candidates_json) or []
