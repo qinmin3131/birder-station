@@ -35,12 +35,44 @@ def test_core_processing():
     success = ImageProcessor.crop_and_resize(test_img_path, box, output_path, target_size=640)
     assert success is True
     assert os.path.exists(output_path)
+    with Image.open(output_path) as cropped:
+        assert cropped.size == (640, 640)
     
     # Cleanup
     if os.path.exists(test_img_path): os.remove(test_img_path)
     if os.path.exists(output_path): os.remove(output_path)
     
     print("--- Core Processing Test Passed (Logic Check) ---")
+
+
+def test_crop_and_resize_preserves_aspect_ratio():
+    """非正方形裁切区域生成归档图时应保持宽高比，不能强制 1:1。"""
+    print("--- Testing Aspect Ratio Preservation ---")
+    
+    test_img_path = "tests/test_bird_wide.jpg"
+    output_path = "tests/test_cropped_preserve.jpg"
+    
+    img = Image.new('RGB', (1000, 500), color=(73, 109, 137))
+    img.save(test_img_path)
+    
+    # Crop region is 400x200 (non-square)
+    box = [100, 100, 500, 300]
+    success = ImageProcessor.crop_and_resize(
+        test_img_path, box, output_path,
+        target_size=640, padding=0, preserve_aspect=True
+    )
+    assert success is True
+    assert os.path.exists(output_path)
+    
+    with Image.open(output_path) as cropped:
+        # 400x200 scaled to fit within 640x640 while preserving aspect ratio -> 640x320
+        assert cropped.size == (640, 320)
+    
+    # Cleanup
+    if os.path.exists(test_img_path): os.remove(test_img_path)
+    if os.path.exists(output_path): os.remove(output_path)
+    
+    print("--- Aspect Ratio Preservation Test Passed ---")
 
 if __name__ == "__main__":
     test_core_processing()

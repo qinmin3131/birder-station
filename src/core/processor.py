@@ -93,6 +93,7 @@ class ImageProcessor:
         dest_path: str,
         target_size: int = 224,
         padding: int = 50,
+        preserve_aspect: bool = False,
     ) -> bool:
         """Crop the detected region from *source_path* and resize to *target_size*.
 
@@ -100,8 +101,12 @@ class ImageProcessor:
             source_path: Path to a decoded image (JPEG or PNG).
             box: (x1, y1, x2, y2) detection box.
             dest_path: Where to write the cropped JPEG.
-            target_size: Final square size for the recognizer.
+            target_size: Final square size for the recognizer, or max edge size
+                when *preserve_aspect* is True.
             padding: Extra pixels around the box before cropping.
+            preserve_aspect: If False, resize to a square (target_size, target_size)
+                for model input. If True, resize so the longest edge equals
+                target_size while preserving the original crop aspect ratio.
         """
         x1, y1, x2, y2 = map(int, box)
         x1 -= padding
@@ -117,7 +122,13 @@ class ImageProcessor:
             y2 = min(height, y2)
 
             cropped = img.crop((x1, y1, x2, y2))
-            cropped = cropped.resize((target_size, target_size), Image.LANCZOS)
+            if preserve_aspect:
+                ratio = min(target_size / cropped.width, target_size / cropped.height)
+                new_width = max(1, int(round(cropped.width * ratio)))
+                new_height = max(1, int(round(cropped.height * ratio)))
+                cropped = cropped.resize((new_width, new_height), Image.LANCZOS)
+            else:
+                cropped = cropped.resize((target_size, target_size), Image.LANCZOS)
 
             os.makedirs(os.path.dirname(dest_path), exist_ok=True)
             cropped.save(dest_path, "JPEG", quality=95)

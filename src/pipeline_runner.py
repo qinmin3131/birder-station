@@ -567,10 +567,24 @@ class WingScribePipeline:
             Path(final_path).parent.mkdir(parents=True, exist_ok=True)
             
             try:
-                import shutil
-                shutil.move(temp_crop_path, final_path)
+                # The recognizer needs a square crop, but the archived/processed
+                # image shown in the UI should preserve the bird crop's aspect
+                # ratio to avoid distortion.
+                source_path = item.get('source_path') or temp_crop_path
+                ImageProcessor.crop_and_resize(
+                    source_path,
+                    bird_bbox,
+                    str(final_path),
+                    target_size=self.config['processing']['target_size'],
+                    padding=self.config['processing']['crop_padding'],
+                    preserve_aspect=True,
+                )
+                try:
+                    os.remove(temp_crop_path)
+                except Exception:
+                    pass
             except Exception as e:
-                logging.error(f"Failed to move crop to {final_path}: {e}")
+                logging.error(f"Failed to generate preserved-aspect crop to {final_path}: {e}")
                 return
             
             if is_low_conf:
@@ -780,6 +794,7 @@ class WingScribePipeline:
                         'entry': entry,
                         'meta': meta,
                         'crop_path': str(temp_crop_path),
+                        'source_path': detection_input_path,
                         'file_hash': file_hash,
                         'width': img_width,
                         'height': img_height,

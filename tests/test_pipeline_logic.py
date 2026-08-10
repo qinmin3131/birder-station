@@ -104,7 +104,7 @@ def test_process_image_keeps_candidate_labels_per_image(tmp_path, monkeypatch):
     pipeline._select_candidate_labels = lambda location_tag: [f"candidate:{location_tag}"]
     pipeline._recognize_batch = lambda items, candidate_labels: captured_labels.append(list(candidate_labels))
 
-    def fake_crop(src, box, dest, target_size, padding):
+    def fake_crop(src, box, dest, target_size, padding, preserve_aspect=False):
         Path(dest).parent.mkdir(parents=True, exist_ok=True)
         shutil.copy(src, dest)
         return True
@@ -698,7 +698,7 @@ def test_process_image_decodes_raw_to_temp_jpg_before_detection(tmp_path, monkey
         decode_calls.append((raw_path_arg, temp_dir_arg))
         return str(decoded_jpg)
 
-    def fake_crop(src, box, dest, target_size, padding):
+    def fake_crop(src, box, dest, target_size, padding, preserve_aspect=False):
         cropped_sources.append(src)
         Path(dest).parent.mkdir(parents=True, exist_ok=True)
         shutil.copy(src, dest)
@@ -738,6 +738,7 @@ def test_process_image_decodes_raw_to_temp_jpg_before_detection(tmp_path, monkey
 def test_archive_item_normalizes_processed_extension_to_jpg(tmp_path):
     """处理后的裁剪图应该统一保存为 JPG，无论原始文件是什么格式。"""
     pipeline = MockPipeline()
+    pipeline.config = {"processing": {"target_size": 640, "crop_padding": 0}}
     pipeline.output_root = str(tmp_path / "out")
     Path(pipeline.output_root).mkdir(parents=True, exist_ok=True)
     pipeline.db = SimpleNamespace(
@@ -749,6 +750,9 @@ def test_archive_item_normalizes_processed_extension_to_jpg(tmp_path):
         "generate_path": staticmethod(lambda meta, filename: str(tmp_path / "out" / filename))
     })()
 
+    source_path = tmp_path / "source.jpg"
+    Image.new("RGB", (100, 100), color="white").save(source_path)
+
     crop_path = tmp_path / "out" / "temp_test.ORF_0.jpg"
     crop_path.parent.mkdir(parents=True, exist_ok=True)
     Image.new("RGB", (10, 10), color="white").save(crop_path)
@@ -758,6 +762,8 @@ def test_archive_item_normalizes_processed_extension_to_jpg(tmp_path):
         "entry": entry,
         "meta": {"captured_date": "20260320", "location_tag": "Beijing", "source_structure": "."},
         "crop_path": str(crop_path),
+        "source_path": str(source_path),
+        "bird_bbox": [20, 20, 80, 80],
         "file_hash": "hash",
         "width": 100,
         "height": 100,
@@ -779,6 +785,7 @@ def test_archive_item_normalizes_processed_extension_to_jpg(tmp_path):
 def test_archive_item_stores_quality_score_and_details(tmp_path, monkeypatch):
     """_archive_item 应将 quality_score 和 quality_details 存入数据库。"""
     pipeline = MockPipeline()
+    pipeline.config = {"processing": {"target_size": 640, "crop_padding": 0}}
     pipeline.output_root = str(tmp_path / "out")
     Path(pipeline.output_root).mkdir(parents=True, exist_ok=True)
     pipeline.log_level = "info"
@@ -796,6 +803,9 @@ def test_archive_item_stores_quality_score_and_details(tmp_path, monkeypatch):
     monkeypatch.setattr("src.pipeline_runner.write_metadata_for_photo", lambda *args, **kwargs: True)
     monkeypatch.setattr("src.pipeline_runner.read_capture_datetime", lambda *args, **kwargs: None)
 
+    source_path = tmp_path / "source.jpg"
+    Image.new("RGB", (100, 100), color="white").save(source_path)
+
     crop_path = tmp_path / "out" / "temp_test.jpg"
     crop_path.parent.mkdir(parents=True, exist_ok=True)
     Image.new("RGB", (10, 10), color="white").save(crop_path)
@@ -805,6 +815,8 @@ def test_archive_item_stores_quality_score_and_details(tmp_path, monkeypatch):
         "entry": entry,
         "meta": {"captured_date": "20260320", "location_tag": "Beijing", "source_structure": "."},
         "crop_path": str(crop_path),
+        "source_path": str(source_path),
+        "bird_bbox": [20, 20, 80, 80],
         "file_hash": "hash",
         "width": 100,
         "height": 100,
