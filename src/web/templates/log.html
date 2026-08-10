@@ -20,7 +20,7 @@
     </style>
 </head>
 <body>
-    {% include 'navbar.html' with active_page='log' %}
+    {% with active_page='log' %}{% include 'navbar.html' %}{% endwith %}
 
     <div class="container-fluid mt-4 px-4">
         <div class="d-flex justify-content-between align-items-center mb-4">

@@ -94,7 +94,7 @@
     </style>
 </head>
 <body>
-    {% include 'navbar.html' with active_page='admin' %}
+    {% with active_page='admin' %}{% include 'navbar.html' %}{% endwith %}
 
     <div class="container mt-4">
         <h2>System Administration</h2>

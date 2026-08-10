@@ -1723,12 +1723,8 @@ def gallery_page(
         session.close()
 
 
-@app.get("/guide", response_class=HTMLResponse)
-def guide_page(request: Request, q: str = ""):
-    """鸟类图鉴：已解锁物种墙，按科分组。本次外拍新增物种高亮。"""
-
-
 @app.get("/log", response_class=HTMLResponse)
+
 def birding_log_page(request: Request):
     """观鸟记录：按日期聚合每次外拍及观测到的物种。"""
     return templates.TemplateResponse(

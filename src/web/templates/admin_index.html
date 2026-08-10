@@ -9,7 +9,7 @@
     <link rel="stylesheet" href="https://cdn.bootcdn.net/ajax/libs/bootstrap-icons/1.11.3/font/bootstrap-icons.min.css">
 </head>
 <body>
-    {% include 'navbar.html' with active_page='admin' %}
+    {% with active_page='admin' %}{% include 'navbar.html' %}{% endwith %}
 
     <div class="container mt-4">
         <h2>Index Photos</h2>

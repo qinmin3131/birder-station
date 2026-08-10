@@ -145,7 +145,7 @@
     </style>
 </head>
 <body>
-    {% include 'navbar.html' with active_page='settings' %}
+    {% with active_page='settings' %}{% include 'navbar.html' %}{% endwith %}
 
     <div class="container">
         <div class="config-container">

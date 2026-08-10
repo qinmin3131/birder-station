@@ -4,6 +4,7 @@ from unittest.mock import ANY, patch
 from urllib.parse import parse_qs
 
 import pytest
+from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -572,6 +573,43 @@ def test_guide_species_history_api_not_found(tmp_path, monkeypatch):
     with pytest.raises(HTTPException) as exc:
         web_app.guide_species_history(scientific_name="Unknown sp.")
     assert exc.value.status_code == 404
+
+
+def test_guide_http_route_renders_content(tmp_path, monkeypatch):
+    """回归测试：确保 /guide 路由没有被空的同名函数覆盖，能够正常渲染页面。"""
+    db_path = _create_temp_db(tmp_path)
+    session, engine = _create_session(db_path)
+    session.add(Species(
+        scientific_name="Passer domesticus",
+        chinese_name="家麻雀",
+        family_cn="雀科",
+        family_sci="Passeridae",
+        photo_count=1,
+    ))
+    session.add(Photo(
+        file_path="a.jpg",
+        filename="a.jpg",
+        scientific_name="Passer domesticus",
+        quality_score=80,
+        captured_date="2026-07-20",
+    ))
+    session.commit()
+    session.close()
+
+    SessionLocal = sessionmaker(bind=engine)
+
+    def _get_session():
+        return SessionLocal()
+
+    monkeypatch.setattr(web_app, "get_sqlalchemy_session", _get_session)
+
+    with TestClient(web_app.app) as client:
+        response = client.get("/guide")
+
+    assert response.status_code == 200
+    body = response.text
+    assert "家麻雀" in body
+    assert "雀科" in body
 
 
 def test_write_photo_metadata_api(tmp_path, monkeypatch):
