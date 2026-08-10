@@ -52,6 +52,24 @@
             border: 3px solid #0d6efd !important;
             box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25) !important;
         }
+        .species-candidates {
+            display: none;
+            border: 1px solid #6c757d;
+            border-radius: 0.25rem;
+        }
+        .species-candidates.show {
+            display: block;
+        }
+        .species-candidate-item {
+            background: #212529;
+            color: #fff;
+            border-color: #6c757d;
+        }
+        .species-candidate-item:hover,
+        .species-candidate-item:focus {
+            background: #343a40;
+            color: #fff;
+        }
     </style>
 </head>
 <body>
@@ -230,10 +248,12 @@
                                 <div class="input-group input-group-sm mb-2">
                                     <input type="text" class="form-control form-control-sm bg-dark text-white border-secondary" id="reviewSpeciesInput"
                                            placeholder="输入中文名或学名" autocomplete="off"
-                                           oninput="searchReviewSpecies(this.value)">
+                                           oninput="searchReviewSpecies(this.value)"
+                                           onfocus="showReviewSpeciesCandidates()"
+                                           onblur="hideReviewSpeciesCandidatesDelayed()">
                                     <button class="btn btn-outline-secondary" type="button" onclick="confirmReviewSpecies()">确认</button>
                                 </div>
-                                <div class="list-group list-group-flush small bg-dark border-secondary" id="reviewSpeciesCandidates" style="max-height: 120px; overflow-y: auto;"></div>
+                                <div class="list-group list-group-flush small bg-dark border-secondary species-candidates" id="reviewSpeciesCandidates" style="max-height: 120px; overflow-y: auto;"></div>
                                 <hr class="border-secondary">
                                 <h6 class="card-subtitle mb-2 text-white-50">操作</h6>
                                 <div class="d-grid gap-2">
@@ -556,9 +576,9 @@
 
             resetButtons();
 
-            // Pre-fill species candidates when opening review
             document.getElementById('reviewSpeciesInput').value = '';
-            searchReviewSpecies('');
+            document.getElementById('reviewSpeciesCandidates').innerHTML = '';
+            document.getElementById('reviewSpeciesCandidates').classList.remove('show');
 
             const canvas = document.getElementById('reviewCanvas');
             const img = new Image();
@@ -713,7 +733,7 @@
                 const cn = s.chinese_name || s.cn || '';
                 const display = cn ? `${cn} (${sci})` : sci;
                 const item = document.createElement('button');
-                item.className = 'list-group-item list-group-item-action list-group-item-dark text-white-50 small py-1';
+                item.className = 'list-group-item list-group-item-action small py-1 species-candidate-item';
                 item.type = 'button';
                 item.textContent = display;
                 item.onclick = () => {
@@ -723,6 +743,21 @@
                 };
                 list.appendChild(item);
             });
+        }
+
+        function showReviewSpeciesCandidates() {
+            const list = document.getElementById('reviewSpeciesCandidates');
+            list.classList.add('show');
+            const input = document.getElementById('reviewSpeciesInput');
+            if (input.value.trim() === '') {
+                searchReviewSpecies('');
+            }
+        }
+
+        function hideReviewSpeciesCandidatesDelayed() {
+            setTimeout(() => {
+                document.getElementById('reviewSpeciesCandidates').classList.remove('show');
+            }, 150);
         }
 
         function searchReviewSpecies(query) {
