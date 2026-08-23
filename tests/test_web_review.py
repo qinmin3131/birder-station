@@ -247,3 +247,27 @@ def test_review_falls_back_to_zero_when_quality_data_missing(client, sample_jpg,
         "subject_size": 0.0,
         "iso": 0.0,
     }
+
+
+def test_review_uses_stored_quality_for_raw_files(client, sample_raw):
+    """RAW 文件在 Review API 中不应重新计算画质（OpenCV 无法读取 RAW），
+    而应直接使用数据库中存储的评分和分项。
+    """
+    session = web_app.get_sqlalchemy_session()
+    photo = _create_photo(
+        session,
+        original_path=str(sample_raw),
+        filename="bird.orf",
+        quality_score=72,
+        quality_details={"clarity": 0.6, "contrast": 0.5, "exposure": 0.7, "subject_size": 0.8, "iso": 0.85},
+        bird_bbox=[100, 100, 300, 300],
+    )
+    photo_id = photo.id
+    session.close()
+
+    response = client.get(f"/api/photo/{photo_id}/review")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["photo"]["quality_score"] == 72
+    assert data["quality_details"]["clarity"] == pytest.approx(0.6, abs=1e-6)
+    assert data["quality_details"]["subject_size"] == pytest.approx(0.8, abs=1e-6)

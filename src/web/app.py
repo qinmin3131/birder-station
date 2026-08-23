@@ -36,6 +36,7 @@ from src.core.io.path_generator import PathGenerator
 from src.core.indexer import PhotoIndexer
 from src.db.models import init_database as init_sqlalchemy_db, Photo, Species, PhotoGroup, Outing
 from src.db.repository import PhotoRepository, OutingRepository
+from src.db.stats import refresh_species_for_photo
 from src.web.routes.recognition import router as recognition_router
 from src.web import task_manager as task_manager_module
 from src.web.task_manager import TaskManager as ExtractedTaskManager
@@ -996,21 +997,7 @@ def write_photo_metadata(photo_id: int):
 
 def _resolve_original_path(photo: Photo) -> str:
     """Return absolute path to the original photo file."""
-    path = photo.original_path or photo.file_path
-    if not path:
-        return ""
-    path_obj = Path(path)
-    if path_obj.is_absolute():
-        return str(path_obj)
-    # Try each configured source directory
-    for src_dir in source_dirs:
-        candidate = src_dir / path_obj
-        if candidate.exists():
-            return str(candidate)
-    # Fallback: join with first source dir even if not found
-    if source_dirs:
-        return str(source_dirs[0] / path_obj)
-    return str(path_obj)
+    return path_helpers.resolve_original_path(photo.original_path or photo.file_path, source_dirs)
 
 
 @app.get("/api/photo/{photo_id}/review")
@@ -1046,7 +1033,14 @@ def get_photo_review(photo_id: int):
                 pass
 
         # Always attempt to recompute with the latest scorer if bbox is available.
-        if photo.bird_bbox and original_path and Path(original_path).exists():
+        # Skip RAW files: OpenCV cannot read camera RAW, so we keep the quality
+        # score computed on the decoded crop during pipeline processing.
+        if (
+            photo.bird_bbox
+            and original_path
+            and Path(original_path).exists()
+            and not ImageProcessor.is_raw(original_path)
+        ):
             try:
                 bbox = photo.bird_bbox
                 if isinstance(bbox, str):
@@ -1259,52 +1253,7 @@ def write_gallery_metadata(filter: str = "", date: str = ""):
 
 def _refresh_species_for_photo(session, scientific_name: str):
     """Recalculate and update species stats in both SQLAlchemy and sqlite3 tables."""
-    if not scientific_name:
-        return
-
-    from src.metadata.ioc_manager import create_db_manager
-
-    # Update SQLAlchemy Species table
-    stats = session.query(
-        func.count(Photo.id).label('count'),
-        func.min(Photo.captured_date).label('first_date'),
-        func.max(Photo.captured_date).label('last_date'),
-    ).filter(Photo.scientific_name == scientific_name).first()
-
-    species = session.query(Species).filter(Species.scientific_name == scientific_name).first()
-
-    if stats.count == 0:
-        if species:
-            session.delete(species)
-    else:
-        if not species:
-            # Look up taxonomy for family and Chinese names
-            bird_info = None
-            try:
-                manager = create_db_manager()
-                bird_info = manager.get_bird_info(scientific_name)
-            finally:
-                manager.close()
-            species = Species(
-                scientific_name=scientific_name,
-                chinese_name=bird_info.get('chinese_name') if bird_info else '',
-                family_cn=bird_info.get('family_cn') if bird_info else '',
-                family_sci=bird_info.get('family_sci') if bird_info else '',
-                photo_count=0,
-            )
-            session.add(species)
-        species.photo_count = stats.count
-        species.first_date = stats.first_date
-        species.last_date = stats.last_date
-
-    session.commit()
-
-    # Update sqlite3 species_stats table (pre-computed tree used by index/nav)
-    try:
-        manager = create_db_manager()
-        manager.update_species_stats_for_photo(scientific_name)
-    finally:
-        manager.close()
+    refresh_species_for_photo(session, scientific_name, manager_factory=create_db_manager)
 
 
 @app.post("/api/photo/{photo_id}/correct-species")

@@ -196,3 +196,23 @@ def resolve_processed_web_path(
     except Exception as exc:
         logger.warning("Failed to resolve processed path '%s': %s", file_path_str, exc)
         return None
+
+
+def resolve_original_path(path_str: Optional[str], source_dirs: Sequence[Path]) -> str:
+    """Resolve a stored photo path to an absolute filesystem path.
+
+    Absolute paths are returned as-is. Relative paths are tried against each
+    configured source directory; falls back to joining the first source dir.
+    """
+    if not path_str:
+        return ""
+    path_obj = Path(path_str)
+    if path_obj.is_absolute() or is_absolute_path(path_str):
+        return str(path_obj)
+    for src_dir in source_dirs:
+        candidate = Path(src_dir) / path_obj
+        if candidate.exists():
+            return str(candidate)
+    if source_dirs:
+        return str(Path(source_dirs[0]) / path_obj)
+    return str(path_obj)

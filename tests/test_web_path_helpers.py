@@ -81,3 +81,32 @@ def test_create_db_manager_uses_separate_roots(tmp_path):
         assert Path(manager.processed_base_dir) == tmp_path / "processed"
     finally:
         manager.close()
+
+
+def test_resolve_original_path_absolute_passthrough(tmp_path):
+    from src.web.path_helpers import resolve_original_path
+    p = tmp_path / "a.jpg"
+    p.write_bytes(b"x")
+    assert resolve_original_path(str(p), []) == str(p)
+
+
+def test_resolve_original_path_relative_against_sources(tmp_path):
+    from src.web.path_helpers import resolve_original_path
+    src = tmp_path / "src1"
+    src.mkdir()
+    (src / "sub").mkdir()
+    (src / "sub" / "b.jpg").write_bytes(b"x")
+    assert resolve_original_path("sub/b.jpg", [src]) == str(src / "sub" / "b.jpg")
+
+
+def test_resolve_original_path_fallback_first_source(tmp_path):
+    from src.web.path_helpers import resolve_original_path
+    src = tmp_path / "src1"
+    src.mkdir()
+    assert resolve_original_path("missing.jpg", [src]) == str(src / "missing.jpg")
+
+
+def test_resolve_original_path_empty():
+    from src.web.path_helpers import resolve_original_path
+    assert resolve_original_path("", [Path(".")]) == ""
+    assert resolve_original_path(None, [Path(".")]) == ""

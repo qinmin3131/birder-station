@@ -48,6 +48,26 @@ class TestQualityScorer:
         assert scorer.calculate_subject_size_score(sample_image.shape, (0, 0, 0, 0)) == 0.0
         assert scorer.calculate_subject_size_score(sample_image.shape, (0, 0, -1, 10)) == 0.0
 
+    def test_clarity_uses_bird_crop(self, scorer):
+        """清晰度应基于鸟框裁切区域计算，而非整幅图像。"""
+        # 左半边：随机纹理（清晰）；右半边：纯色（模糊）
+        sharp = np.random.randint(0, 255, (100, 50, 3), dtype=np.uint8)
+        smooth = np.full((100, 50, 3), 128, dtype=np.uint8)
+        image = np.hstack([sharp, smooth])
+
+        # bbox 在左半边清晰区域 [x1, y1, x2, y2]
+        result_sharp = scorer.calculate_quality_score(image, (0, 0, 50, 100))
+        # bbox 在右半边模糊区域
+        result_smooth = scorer.calculate_quality_score(image, (50, 0, 100, 100))
+
+        assert result_sharp["details"]["clarity"] > result_smooth["details"]["clarity"]
+        assert 0 <= result_smooth["details"]["clarity"] <= 1
+        assert 0 <= result_sharp["details"]["clarity"] <= 1
+
+    def test_clarity_normalizer_is_larger_than_legacy(self):
+        """归一化值应大于旧的 500，避免高像素锐利照片轻易顶到 1.0。"""
+        assert QualityScorer._CLARITY_NORMALIZER > 500.0
+
     def test_calculate_quality_score(self, scorer, sample_image):
         result = scorer.calculate_quality_score(sample_image, (50, 25, 100, 50))
         assert "score" in result

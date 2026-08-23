@@ -3,6 +3,7 @@ import subprocess
 import tempfile
 import shutil
 import os
+import json
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import List, Dict, Any, Optional
@@ -386,7 +387,9 @@ def read_exif_summary(exif_writer: ExifWriter, image_path: str) -> Dict[str, Any
         "ExifImageHeight",
     ]
     try:
-        cmd = [exiftool_cmd, "-j", "-G0"] + [f"-{t}" for t in tags] + [image_path]
+        # Do not use -G0: the caller expects flat tag names like "Make", not
+        # group-prefixed names like "EXIF:Make".
+        cmd = [exiftool_cmd, "-j"] + [f"-{t}" for t in tags] + [image_path]
         proc = subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=30)
         if proc.returncode == 0 and proc.stdout:
             data = json.loads(proc.stdout)

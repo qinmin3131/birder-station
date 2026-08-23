@@ -14,6 +14,7 @@ from unittest.mock import patch, MagicMock
 import pytest
 import tempfile
 import os
+import json
 from PIL import Image
 
 from src.metadata.exif_writer import (
@@ -23,6 +24,7 @@ from src.metadata.exif_writer import (
     write_metadata_for_photo,
     read_iso,
     read_capture_datetime,
+    read_exif_summary,
 )
 
 
@@ -408,6 +410,51 @@ class TestReadIso:
             with patch.object(ExifWriter, "_resolve_exiftool", return_value=None):
                 writer = ExifWriter("exiftool")
                 assert read_iso(writer, jpg_path) is None
+        finally:
+            if os.path.exists(jpg_path):
+                os.remove(jpg_path)
+
+
+class TestReadExifSummary:
+    """Tests for read_exif_summary helper."""
+
+    def test_read_exif_summary_parses_flat_tags(self):
+        """ExifTool output without group prefix should populate summary fields."""
+        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as f:
+            img = Image.new("RGB", (100, 100), color=(255, 0, 0))
+            img.save(f.name)
+            jpg_path = f.name
+        try:
+            fake_json = [
+                {
+                    "SourceFile": jpg_path,
+                    "Make": "OM Digital Solutions",
+                    "Model": "OM-3",
+                    "LensModel": "OM 75-300mm F4.8-6.7 II",
+                    "Aperture": 6.7,
+                    "ShutterSpeed": "1/800",
+                    "ISO": 3200,
+                    "FocalLength": "300.0 mm",
+                    "DateTimeOriginal": "2026:01:01 13:42:27",
+                    "ImageSize": "5220x3912",
+                }
+            ]
+            with patch("src.metadata.exif_writer.subprocess.run") as mock_run:
+                mock_run.return_value = MagicMock(
+                    returncode=0, stdout=json.dumps(fake_json), stderr=""
+                )
+                writer = ExifWriter("exiftool")
+                summary = read_exif_summary(writer, jpg_path)
+            assert summary["camera_make"] == "OM Digital Solutions"
+            assert summary["camera_model"] == "OM-3"
+            assert summary["lens_model"] == "OM 75-300mm F4.8-6.7 II"
+            assert summary["aperture"] == 6.7
+            assert summary["shutter_speed"] == "1/800"
+            assert summary["iso"] == 3200
+            assert summary["focal_length"] == "300.0 mm"
+            assert summary["date_time_original"] == "2026:01:01 13:42:27"
+            assert summary["image_size"] == "5220x3912"
+            assert summary["file_size"] == os.stat(jpg_path).st_size
         finally:
             if os.path.exists(jpg_path):
                 os.remove(jpg_path)

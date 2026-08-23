@@ -52,7 +52,7 @@ class QualityScorer:
         "iso": 0.10,
     }
 
-    _CLARITY_NORMALIZER = 500.0
+    _CLARITY_NORMALIZER = 1000.0
     _CONTRAST_NORMALIZER = 80.0
 
     def __init__(self, weights: Optional[Dict[str, float]] = None):
@@ -65,6 +65,27 @@ class QualityScorer:
         if image.ndim == 3:
             return cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
         return image
+
+    @staticmethod
+    def _crop_bird_region(
+        image: np.ndarray,
+        bird_bbox: Tuple[int, int, int, int],
+    ) -> np.ndarray:
+        """Crop the bird region defined by ``bird_bbox``.
+
+        ``bird_bbox`` follows the detector's ``[x1, y1, x2, y2]`` convention.
+        Coordinates are clamped to image bounds; if the box is invalid, the
+        original image is returned as a fallback.
+        """
+        x1, y1, x2, y2 = map(int, bird_bbox)
+        h, w = image.shape[:2]
+        x1 = max(0, min(x1, w))
+        x2 = max(0, min(x2, w))
+        y1 = max(0, min(y1, h))
+        y2 = max(0, min(y2, h))
+        if x2 <= x1 or y2 <= y1:
+            return image
+        return image[y1:y2, x1:x2]
 
     @staticmethod
     def calculate_iso_score(iso: Optional[int]) -> float:
@@ -139,11 +160,14 @@ class QualityScorer:
     ) -> Dict:
         """计算 5 维加权综合画质评分。
 
+        ``clarity`` 只在鸟框裁切区域内计算，避免背景/天空拉低主体清晰度。
+
         Returns:
             ``{"score": int 0-100, "details": {dim: float 0-1, ...}}``
         """
+        bird_crop = self._crop_bird_region(image, bird_bbox)
         details = {
-            "clarity": self.calculate_clarity(image),
+            "clarity": self.calculate_clarity(bird_crop),
             "contrast": self.calculate_contrast(image),
             "exposure": self.calculate_exposure(image),
             "subject_size": self.calculate_subject_size_score(image.shape, bird_bbox),
