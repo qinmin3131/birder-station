@@ -34,6 +34,7 @@ from src.metadata.exif_writer import (
 from src.utils.config_loader import load_config, validate_paths_config
 from src.core.io.path_generator import PathGenerator
 from src.core.indexer import PhotoIndexer
+from src.core.trash_service import TrashService
 from src.db.models import init_database as init_sqlalchemy_db, Photo, Species, PhotoGroup, Outing
 from src.db.repository import PhotoRepository, OutingRepository
 from src.db.stats import refresh_species_for_photo
@@ -708,6 +709,10 @@ class CorrectSpeciesRequest(BaseModel):
     write_metadata: bool = True
 
 
+class EmptyTrashRequest(BaseModel):
+    outing_id: int = 0
+
+
 # --- Three-domain web routes ---
 def _apply_rating_filter(query, rating: str):
     """Apply tier filtering to the SQLAlchemy Photo query.
@@ -1246,6 +1251,36 @@ def write_gallery_metadata(filter: str = "", date: str = ""):
         }
     except Exception as e:
         logger.error(f"Failed to batch write metadata: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        session.close()
+
+
+@app.get("/api/trash/preview")
+def trash_preview(outing_id: int = 0):
+    """Preview rejected photos that would be moved to the OS recycle bin."""
+    session = get_sqlalchemy_session()
+    try:
+        service = TrashService(session, source_dirs, processed_dir, manager_factory=create_db_manager)
+        data = service.list_rejected(outing_id)
+        return {"status": "success", **data}
+    except Exception as e:
+        logger.error(f"Failed to preview trash: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        session.close()
+
+
+@app.post("/api/trash/empty")
+def trash_empty(req: EmptyTrashRequest):
+    """Move rejected photos to the OS recycle bin and delete their records."""
+    session = get_sqlalchemy_session()
+    try:
+        service = TrashService(session, source_dirs, processed_dir, manager_factory=create_db_manager)
+        result = service.empty(req.outing_id)
+        return {"status": "success", **result}
+    except Exception as e:
+        logger.error(f"Failed to empty trash: {e}")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         session.close()
