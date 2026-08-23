@@ -108,6 +108,7 @@
                         <button class="btn btn-outline-success" onclick="autoPickBest(50)" title="自动选每组最佳 + 单张 ≥50 分">🤖 一键可用</button>
                         <button class="btn btn-outline-secondary" onclick="batchAction('keep')">保留</button>
                         <button class="btn btn-outline-danger" onclick="batchAction('reject')">淘汰</button>
+                        <button class="btn btn-outline-danger" onclick="emptyTrash()">🗑️ 清空淘汰</button>
                         <a href="/gallery?outing_id={{ outing_id }}" class="btn btn-primary">查看本次外拍 → 图库</a>
                     </div>
                 </div>
@@ -366,6 +367,29 @@
                     }
                 })
                 .catch(e => console.error(e));
+        }
+
+        function emptyTrash() {
+            fetch(`/api/trash/preview?outing_id={{ outing_id }}`)
+                .then(r => r.json())
+                .then(data => {
+                    if (!data.count) { alert('当前没有淘汰照片'); return; }
+                    const mb = (data.total_bytes / 1024 / 1024).toFixed(1);
+                    const samples = data.sample_filenames.join('、');
+                    if (!confirm(`将把 ${data.count} 张淘汰照片移入系统回收站（约 ${mb} MB）。\n示例：${samples}\n\n此操作同时删除数据库记录；文件可在系统回收站还原。\n确认继续？`)) return;
+                    fetch('/api/trash/empty', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({outing_id: {{ outing_id }}})
+                    })
+                        .then(r => r.json())
+                        .then(res => {
+                            alert(`完成：回收 ${res.moved} 张，删除记录 ${res.deleted} 条，跳过 ${res.skipped} 张，失败 ${res.errors.length} 张`);
+                            location.reload();
+                        })
+                        .catch(e => { console.error(e); alert('清空淘汰失败'); });
+                })
+                .catch(e => { console.error(e); alert('获取淘汰照片预览失败'); });
         }
 
         function writeMetadata(id) {
