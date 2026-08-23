@@ -713,6 +713,18 @@ class EmptyTrashRequest(BaseModel):
     outing_id: int = 0
 
 
+def _load_json(value):
+    """Parse a JSON column value that may be a raw string or an already-decoded object."""
+    if not value:
+        return None
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except (ValueError, TypeError):
+            return None
+    return value
+
+
 # --- Three-domain web routes ---
 def _apply_rating_filter(query, rating: str):
     """Apply tier filtering to the SQLAlchemy Photo query.

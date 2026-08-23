@@ -1,4 +1,5 @@
 import asyncio
+import json
 import sqlite3
 from pathlib import Path
 from unittest.mock import ANY
@@ -1082,3 +1083,67 @@ def test_correct_species_rejects_not_in_checklist(tmp_path, monkeypatch):
         })
     assert response.status_code == 400
     assert "not found in ioc checklist" in response.json()["detail"].lower()
+
+
+def test_correct_species_with_string_candidates_json(tmp_path, monkeypatch):
+    """鸟种修正时 candidates_json 可能是 JSON 字符串，修正后 Top1 应更新为新鸟种。"""
+    db_path = tmp_path / "test_correct_str.db"
+    engine = create_engine(f"sqlite:///{db_path}")
+    Base.metadata.create_all(engine)
+    SessionLocal = sessionmaker(bind=engine)
+
+    init_manager = IOCManager(str(db_path), source_base_dir=str(tmp_path), processed_base_dir=str(tmp_path))
+    init_manager.close()
+    conn = sqlite3.connect(str(db_path))
+    conn.execute(
+        "INSERT INTO taxonomy (scientific_name, chinese_name, family_cn, order_cn, genus_cn, family_sci, order_sci, genus_sci, english_name) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        ("Passer montanus", "麻雀", "雀科", "雀形目", "麻雀属", "Passeridae", "Passeriformes", "Passer", "Eurasian Tree Sparrow")
+    )
+    conn.commit()
+    conn.close()
+
+    monkeypatch.setattr(web_app, "db_path", db_path)
+    monkeypatch.setattr(web_app, "source_dir", tmp_path)
+    monkeypatch.setattr(web_app, "processed_dir", tmp_path)
+    monkeypatch.setattr(web_app, "config", {"paths": {"source_dir": str(tmp_path)}})
+    monkeypatch.setattr(web_app, "get_sqlalchemy_session", lambda: SessionLocal())
+
+    session = SessionLocal()
+    photo = Photo(
+        file_path="bird.jpg",
+        filename="bird.jpg",
+        original_path=None,
+        primary_bird_cn="未知",
+        scientific_name="Unknown",
+        confidence_score=0.5,
+    )
+    session.add(photo)
+    session.commit()
+    photo_id = photo.id
+    session.close()
+
+    conn = sqlite3.connect(str(db_path))
+    conn.execute(
+        "UPDATE photos SET candidates_json = ? WHERE id = ?",
+        (json.dumps([{"sci": "Unknown", "cn": "未知", "score": 0.5}]), photo_id),
+    )
+    conn.commit()
+    conn.close()
+
+    with TestClient(web_app.app) as c:
+        response = c.post(f"/api/photo/{photo_id}/correct-species", json={
+            "scientific_name": "Passer montanus",
+            "chinese_name": "",
+            "write_metadata": False,
+        })
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "success"
+
+    session = SessionLocal()
+    photo = session.query(Photo).filter(Photo.id == photo_id).first()
+    assert photo.scientific_name == "Passer montanus"
+    candidates = json.loads(photo.candidates_json)
+    assert candidates[0]["scientific_name"] == "Passer montanus"
+    session.close()
