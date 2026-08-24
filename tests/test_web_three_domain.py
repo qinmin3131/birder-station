@@ -709,3 +709,65 @@ def test_gallery_page_filters_cascade_locations(tmp_path, monkeypatch):
     context = templates.calls[-1]["context"]
     assert len(context["photos"]) == 1
     assert context["photos"][0]["location_level3"] == "森林公园"
+
+
+def test_select_progress_endpoint_empty_db(tmp_path, monkeypatch):
+    db_path = _create_temp_db(tmp_path)
+    monkeypatch.setattr(web_app, "db_path", Path(db_path))
+
+    result = web_app.select_progress(outing_id=0, date="")
+
+    assert result == {"status": "success", "total": 0, "processed": 0, "unprocessed": 0, "percent": 0}
+
+
+def test_select_progress_counts_processed_states(tmp_path, monkeypatch):
+    db_path = _create_temp_db(tmp_path)
+    monkeypatch.setattr(web_app, "db_path", Path(db_path))
+    session, _ = _create_session(db_path)
+    # 选中 + 已确认 → 已处理
+    session.add(Photo(file_path="a.jpg", filename="a.jpg", is_selected=True, primary_bird_cn="麻雀", scientific_name="Passer montanus"))
+    # 选中 + 待确认 → 未处理
+    session.add(Photo(file_path="b.jpg", filename="b.jpg", is_selected=True, primary_bird_cn="待确认鸟种"))
+    # 选中 + Uncertain 学名 → 未处理
+    session.add(Photo(file_path="c.jpg", filename="c.jpg", is_selected=True, primary_bird_cn="麻雀", scientific_name="Uncertain"))
+    # 淘汰 → 已处理
+    session.add(Photo(file_path="d.jpg", filename="d.jpg", rating=-1, primary_bird_cn="待确认鸟种"))
+    # 未动 → 未处理
+    session.add(Photo(file_path="e.jpg", filename="e.jpg", primary_bird_cn="麻雀", scientific_name="Passer montanus"))
+    # 选中 + 无鸟（NULL）→ 已处理
+    session.add(Photo(file_path="f.jpg", filename="f.jpg", is_selected=True))
+    session.commit()
+    session.close()
+
+    result = web_app.select_progress(outing_id=0, date="")
+
+    assert result["total"] == 6
+    assert result["processed"] == 3
+    assert result["unprocessed"] == 3
+    assert result["percent"] == 50
+
+
+def test_select_progress_filters_outing_and_date(tmp_path, monkeypatch):
+    db_path = _create_temp_db(tmp_path)
+    monkeypatch.setattr(web_app, "db_path", Path(db_path))
+    session, _ = _create_session(db_path)
+    o1 = Outing(name="外拍1", start_date="20260720")
+    o2 = Outing(name="外拍2", start_date="20260721")
+    session.add_all([o1, o2])
+    session.flush()
+    session.add(Photo(file_path="a.jpg", filename="a.jpg", outing_id=o1.id, captured_date="2026-07-20", is_selected=True, primary_bird_cn="麻雀"))
+    session.add(Photo(file_path="b.jpg", filename="b.jpg", outing_id=o1.id, captured_date="2026-07-21", rating=-1))
+    session.add(Photo(file_path="c.jpg", filename="c.jpg", outing_id=o2.id, captured_date="2026-07-21", rating=-1))
+    session.commit()
+    o1_id, o2_id = o1.id, o2.id
+    session.close()
+
+    # outing_id 过滤
+    result = web_app.select_progress(outing_id=o1_id, date="")
+    assert result["total"] == 2 and result["processed"] == 2
+    # outing_id + date 过滤
+    result = web_app.select_progress(outing_id=o1_id, date="2026-07-21")
+    assert result["total"] == 1 and result["processed"] == 1
+    # 指定外拍优先于"最近一次外拍"回退
+    result = web_app.select_progress(outing_id=o2_id, date="")
+    assert result["total"] == 1

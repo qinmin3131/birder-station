@@ -726,6 +726,33 @@ def _load_json(value):
 
 
 # --- Three-domain web routes ---
+def _compute_select_progress(session, outing_id: int = 0, date: str = "") -> dict:
+    """选片进度：已处理 =（选中且鸟种已确认）或已淘汰。
+
+    鸟种字段为 NULL（无鸟）视为已确认；outing_id=0 时回退到最近一次外拍，
+    无外拍则统计全表；应用 date 筛选；不涉及 rating 等级筛选。
+    """
+    query = session.query(Photo)
+    current_outing = None
+    if outing_id:
+        current_outing = session.query(Outing).filter(Outing.id == outing_id).first()
+    if not current_outing:
+        current_outing = session.query(Outing).order_by(Outing.created_at.desc()).first()
+    if current_outing:
+        query = query.filter(Photo.outing_id == current_outing.id)
+    if date:
+        query = query.filter(Photo.captured_date == date)
+
+    cn_confirmed = (Photo.primary_bird_cn.is_(None)) | (Photo.primary_bird_cn != "待确认鸟种")
+    sci_confirmed = (Photo.scientific_name.is_(None)) | (Photo.scientific_name != "Uncertain")
+    processed_cond = ((Photo.is_selected == True) & cn_confirmed & sci_confirmed) | (Photo.rating == -1)
+
+    total = query.count()
+    processed = query.filter(processed_cond).count()
+    percent = round(processed / total * 100) if total else 0
+    return {"total": total, "processed": processed, "unprocessed": total - processed, "percent": percent}
+
+
 def _apply_rating_filter(query, rating: str):
     """Apply tier filtering to the SQLAlchemy Photo query.
 
@@ -879,6 +906,20 @@ def select_page(request: Request, date: str = "", outing_id: int = 0, rating: st
                 "outing_id": current_outing.id if current_outing else 0,
             },
         )
+    finally:
+        session.close()
+
+
+@app.get("/api/select/progress")
+def select_progress(outing_id: int = 0, date: str = ""):
+    """选片进度统计：已处理/未处理数量与百分比。"""
+    session = get_sqlalchemy_session()
+    try:
+        data = _compute_select_progress(session, outing_id, date)
+        return {"status": "success", **data}
+    except Exception as e:
+        logger.error(f"Failed to compute select progress: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
         session.close()
 
