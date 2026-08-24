@@ -115,6 +115,17 @@
             </div>
         </div>
 
+        <div class="row mb-3">
+            <div class="col-12">
+                <div class="d-flex align-items-center gap-3">
+                    <span class="small text-muted text-nowrap" id="progressText">共 {{ progress.total }} 张 · 已处理 {{ progress.processed }} · 未处理 {{ progress.unprocessed }}</span>
+                    <div class="progress flex-grow-1" style="height: 12px;">
+                        <div id="progressBar" class="progress-bar bg-success" role="progressbar" style="width: {{ progress.percent }}%;">{{ progress.percent }}%</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Star rating filter bar -->
         <div class="row mb-3">
             <div class="col-12">
@@ -323,7 +334,7 @@
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({photo_id: id, action: action})
-            }).catch(e => console.error(e));
+            }).then(() => refreshProgress()).catch(e => console.error(e));
         }
 
         function pickBest(groupId) {
@@ -361,6 +372,7 @@
                 .then(data => {
                     if (data.status === 'success') {
                         data.selected_ids.forEach(id => markPhoto(id, 'select'));
+                        refreshProgress();
                         alert(`已自动选中 ${data.selected_count} 张照片`);
                     } else {
                         throw new Error(data.detail || 'unknown error');
@@ -390,6 +402,18 @@
                         .catch(e => { console.error(e); alert('清空淘汰失败'); });
                 })
                 .catch(e => { console.error(e); alert('获取淘汰照片预览失败'); });
+        }
+
+        function refreshProgress() {
+            fetch(`/api/select/progress?outing_id={{ outing_id }}{% if current_date %}&date={{ current_date }}{% endif %}`)
+                .then(r => r.json())
+                .then(data => {
+                    document.getElementById('progressText').textContent = `共 ${data.total} 张 · 已处理 ${data.processed} · 未处理 ${data.unprocessed}`;
+                    const bar = document.getElementById('progressBar');
+                    bar.style.width = `${data.percent}%`;
+                    bar.textContent = `${data.percent}%`;
+                })
+                .catch(e => console.error(e));
         }
 
         function writeMetadata(id) {
@@ -615,6 +639,9 @@
             document.getElementById('reviewSpeciesInput').value = '';
             document.getElementById('reviewSpeciesCandidates').innerHTML = '';
             document.getElementById('reviewSpeciesCandidates').classList.remove('show');
+            reviewSpeciesMatches = [];
+            selectedReviewSpecies = null;
+            reviewSpeciesActiveIndex = -1;
 
             const canvas = document.getElementById('reviewCanvas');
             const img = new Image();
@@ -760,6 +787,29 @@
 
         let reviewSpeciesMatches = [];
         let selectedReviewSpecies = null;
+        let reviewSpeciesActiveIndex = -1;
+
+        function updateReviewSpeciesActiveItem() {
+            const list = document.getElementById('reviewSpeciesCandidates');
+            const items = list.querySelectorAll('.species-candidate-item');
+            items.forEach((item, i) => {
+                item.classList.toggle('active', i === reviewSpeciesActiveIndex);
+            });
+            const activeItem = items[reviewSpeciesActiveIndex];
+            if (activeItem) activeItem.scrollIntoView({ block: 'nearest' });
+        }
+
+        function selectReviewSpecies(s) {
+            selectedReviewSpecies = s;
+            const sci = s.scientific_name || s.sci || '';
+            const cn = s.chinese_name || s.cn || '';
+            const list = document.getElementById('reviewSpeciesCandidates');
+            document.getElementById('reviewSpeciesInput').value = cn || sci;
+            list.innerHTML = '';
+            list.classList.remove('show');
+            reviewSpeciesMatches = [];
+            reviewSpeciesActiveIndex = -1;
+        }
 
         function renderReviewSpeciesMatches() {
             const list = document.getElementById('reviewSpeciesCandidates');
@@ -772,13 +822,11 @@
                 item.className = 'list-group-item list-group-item-action small py-1 species-candidate-item';
                 item.type = 'button';
                 item.textContent = display;
-                item.onclick = () => {
-                    selectedReviewSpecies = s;
-                    document.getElementById('reviewSpeciesInput').value = cn || sci;
-                    list.innerHTML = '';
-                };
+                item.onclick = () => selectReviewSpecies(s);
                 list.appendChild(item);
             });
+            reviewSpeciesActiveIndex = reviewSpeciesMatches.length > 0 ? 0 : -1;
+            updateReviewSpeciesActiveItem();
         }
 
         function showReviewSpeciesCandidates() {
@@ -796,14 +844,39 @@
             }, 150);
         }
 
+        document.getElementById('reviewSpeciesInput').addEventListener('keydown', e => {
+            const list = document.getElementById('reviewSpeciesCandidates');
+            const listVisible = list.classList.contains('show') && reviewSpeciesMatches.length > 0;
+            if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                if (!listVisible) return;
+                e.preventDefault();
+                const delta = e.key === 'ArrowDown' ? 1 : -1;
+                const len = reviewSpeciesMatches.length;
+                if (reviewSpeciesActiveIndex < 0) {
+                    reviewSpeciesActiveIndex = e.key === 'ArrowDown' ? 0 : len - 1;
+                } else {
+                    reviewSpeciesActiveIndex = (reviewSpeciesActiveIndex + delta + len) % len;
+                }
+                updateReviewSpeciesActiveItem();
+            } else if (e.key === 'Enter') {
+                e.preventDefault();
+                if (listVisible) {
+                    const idx = reviewSpeciesActiveIndex >= 0 ? reviewSpeciesActiveIndex : 0;
+                    selectReviewSpecies(reviewSpeciesMatches[idx]);
+                } else if (selectedReviewSpecies) {
+                    confirmReviewSpecies();
+                }
+            }
+        });
+
         function searchReviewSpecies(query) {
             const list = document.getElementById('reviewSpeciesCandidates');
             list.innerHTML = '';
             reviewSpeciesMatches = [];
             selectedReviewSpecies = null;
 
-            // Empty input: show top 5 recognition candidates
-            if (!query || query.trim().length < 2) {
+            // Empty input: show top 5 recognition candidates; any input: search all species
+            if (!query || query.trim().length < 1) {
                 if (currentReviewData && currentReviewData.candidates) {
                     reviewSpeciesMatches = currentReviewData.candidates.slice(0, 5).map(c => ({
                         scientific_name: c.scientific_name || c.sci || '',
@@ -848,6 +921,9 @@
                         document.getElementById('reviewSpeciesInput').value = '';
                         document.getElementById('reviewSpeciesCandidates').innerHTML = '';
                         selectedReviewSpecies = null;
+                        reviewSpeciesMatches = [];
+                        reviewSpeciesActiveIndex = -1;
+                        refreshProgress();
                         alert('鸟种已修正');
                     } else {
                         throw new Error(data.detail || 'unknown error');

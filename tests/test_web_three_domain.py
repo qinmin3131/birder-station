@@ -58,6 +58,7 @@ def test_select_page_renders_template(tmp_path, monkeypatch):
         "context": {
             "request": ANY, "groups": [], "current_date": "",
             "current_rating": "", "current_outing": None, "outing_id": 0,
+            "progress": {"total": 0, "processed": 0, "unprocessed": 0, "percent": 0},
         },
     }
 
@@ -771,3 +772,21 @@ def test_select_progress_filters_outing_and_date(tmp_path, monkeypatch):
     # 指定外拍优先于"最近一次外拍"回退
     result = web_app.select_progress(outing_id=o2_id, date="")
     assert result["total"] == 1
+
+
+def test_select_page_includes_progress_context(tmp_path, monkeypatch):
+    db_path = _create_temp_db(tmp_path)
+    monkeypatch.setattr(web_app, "db_path", Path(db_path))
+    session, _ = _create_session(db_path)
+    session.add(Photo(file_path="a.jpg", filename="a.jpg", is_selected=True, primary_bird_cn="麻雀", scientific_name="Passer montanus"))
+    session.add(Photo(file_path="b.jpg", filename="b.jpg"))
+    session.commit()
+    session.close()
+
+    templates = TemplateRecorder()
+    monkeypatch.setattr(web_app, "templates", templates)
+
+    web_app.select_page(request=object(), date="")
+
+    progress = templates.calls[0]["context"]["progress"]
+    assert progress == {"total": 2, "processed": 1, "unprocessed": 1, "percent": 50}

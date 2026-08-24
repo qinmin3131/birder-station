@@ -904,6 +904,9 @@ def select_page(request: Request, date: str = "", outing_id: int = 0, rating: st
                 "current_rating": rating,
                 "current_outing": current_outing,
                 "outing_id": current_outing.id if current_outing else 0,
+                "progress": _compute_select_progress(
+                    session, current_outing.id if current_outing else 0, date
+                ),
             },
         )
     finally:
