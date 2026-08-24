@@ -57,7 +57,7 @@ def test_select_page_renders_template(tmp_path, monkeypatch):
         "template": "select.html",
         "context": {
             "request": ANY, "groups": [], "current_date": "",
-            "current_rating": "", "current_outing": None, "outing_id": 0,
+            "current_rating": "", "current_unprocessed": "", "current_outing": None, "outing_id": 0,
             "progress": {"total": 0, "processed": 0, "unprocessed": 0, "percent": 0},
         },
     }
@@ -790,3 +790,51 @@ def test_select_page_includes_progress_context(tmp_path, monkeypatch):
 
     progress = templates.calls[0]["context"]["progress"]
     assert progress == {"total": 2, "processed": 1, "unprocessed": 1, "percent": 50}
+
+
+def test_select_page_filters_unprocessed(tmp_path, monkeypatch):
+    db_path = _create_temp_db(tmp_path)
+    monkeypatch.setattr(web_app, "db_path", Path(db_path))
+    session, _ = _create_session(db_path)
+    # 已处理：选中+已确认
+    session.add(Photo(file_path="a.jpg", filename="a.jpg", captured_date="2026-07-20", is_selected=True, primary_bird_cn="麻雀", scientific_name="Passer montanus", quality_score=80))
+    # 已处理：淘汰
+    session.add(Photo(file_path="b.jpg", filename="b.jpg", captured_date="2026-07-20", rating=-1, quality_score=30))
+    # 未处理：选中但待确认
+    session.add(Photo(file_path="c.jpg", filename="c.jpg", captured_date="2026-07-20", is_selected=True, primary_bird_cn="待确认鸟种", quality_score=70))
+    # 未处理：未动
+    session.add(Photo(file_path="d.jpg", filename="d.jpg", captured_date="2026-07-20", primary_bird_cn="麻雀", quality_score=60))
+    session.commit()
+    session.close()
+
+    templates = TemplateRecorder()
+    monkeypatch.setattr(web_app, "templates", templates)
+
+    web_app.select_page(request=object(), date="", rating="", unprocessed="1")
+
+    context = templates.calls[0]["context"]
+    shown = {p["web_processed_path"] or "" for g in context["groups"] for p in g["photos"]}
+    shown_ids = {p["id"] for g in context["groups"] for p in g["photos"]}
+    assert shown_ids == {3, 4}
+    assert context["current_unprocessed"] == "1"
+    # 进度条仍统计全量，不受 unprocessed 筛选影响
+    assert context["progress"] == {"total": 4, "processed": 2, "unprocessed": 2, "percent": 50}
+
+
+def test_select_page_unprocessed_overrides_rating(tmp_path, monkeypatch):
+    db_path = _create_temp_db(tmp_path)
+    monkeypatch.setattr(web_app, "db_path", Path(db_path))
+    session, _ = _create_session(db_path)
+    session.add(Photo(file_path="a.jpg", filename="a.jpg", captured_date="2026-07-20", primary_bird_cn="麻雀", quality_score=85))
+    session.commit()
+    session.close()
+
+    templates = TemplateRecorder()
+    monkeypatch.setattr(web_app, "templates", templates)
+
+    # rating=5 与 unprocessed=1 同时给出时，unprocessed 生效（该照片未处理，应显示）
+    web_app.select_page(request=object(), date="", rating="5", unprocessed="1")
+
+    context = templates.calls[0]["context"]
+    assert len(context["groups"]) == 1
+    assert context["current_unprocessed"] == "1"

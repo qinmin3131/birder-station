@@ -726,6 +726,18 @@ def _load_json(value):
 
 
 # --- Three-domain web routes ---
+def _processed_condition():
+    """选片"已处理"判定条件：选中且鸟种已确认（NULL 视为已确认），或已淘汰。
+
+    rating 用 coalesce 兜底为 0，保证 NOT 取反时 SQL NULL 三值逻辑不把
+    未评分照片错误排除。
+    """
+    cn_confirmed = (Photo.primary_bird_cn.is_(None)) | (Photo.primary_bird_cn != "待确认鸟种")
+    sci_confirmed = (Photo.scientific_name.is_(None)) | (Photo.scientific_name != "Uncertain")
+    rejected = func.coalesce(Photo.rating, 0) == -1
+    return ((Photo.is_selected == True) & cn_confirmed & sci_confirmed) | rejected
+
+
 def _compute_select_progress(session, outing_id: int = 0, date: str = "") -> dict:
     """选片进度：已处理 =（选中且鸟种已确认）或已淘汰。
 
@@ -743,12 +755,8 @@ def _compute_select_progress(session, outing_id: int = 0, date: str = "") -> dic
     if date:
         query = query.filter(Photo.captured_date == date)
 
-    cn_confirmed = (Photo.primary_bird_cn.is_(None)) | (Photo.primary_bird_cn != "待确认鸟种")
-    sci_confirmed = (Photo.scientific_name.is_(None)) | (Photo.scientific_name != "Uncertain")
-    processed_cond = ((Photo.is_selected == True) & cn_confirmed & sci_confirmed) | (Photo.rating == -1)
-
     total = query.count()
-    processed = query.filter(processed_cond).count()
+    processed = query.filter(_processed_condition()).count()
     percent = round(processed / total * 100) if total else 0
     return {"total": total, "processed": processed, "unprocessed": total - processed, "percent": percent}
 
@@ -791,8 +799,8 @@ def _apply_rating_filter(query, rating: str):
 
 
 @app.get("/select", response_class=HTMLResponse)
-def select_page(request: Request, date: str = "", outing_id: int = 0, rating: str = ""):
-    """选片工作台：默认展示最近一次外拍的照片，按连拍分组优先展示。支持等级筛选。"""
+def select_page(request: Request, date: str = "", outing_id: int = 0, rating: str = "", unprocessed: str = ""):
+    """选片工作台：默认展示最近一次外拍的照片，按连拍分组优先展示。支持等级筛选与只看未处理。"""
     session = get_sqlalchemy_session()
     try:
         # Determine the active outing
@@ -807,7 +815,9 @@ def select_page(request: Request, date: str = "", outing_id: int = 0, rating: st
             query = query.filter(Photo.outing_id == current_outing.id)
         if date:
             query = query.filter(Photo.captured_date == date)
-        if rating:
+        if unprocessed:
+            query = query.filter(~_processed_condition())
+        elif rating:
             query = _apply_rating_filter(query, rating)
         photos = query.order_by(Photo.captured_date.desc(), Photo.id.desc()).limit(500).all()
 
@@ -902,6 +912,7 @@ def select_page(request: Request, date: str = "", outing_id: int = 0, rating: st
                 "groups": display_groups,
                 "current_date": date,
                 "current_rating": rating,
+                "current_unprocessed": unprocessed,
                 "current_outing": current_outing,
                 "outing_id": current_outing.id if current_outing else 0,
                 "progress": _compute_select_progress(

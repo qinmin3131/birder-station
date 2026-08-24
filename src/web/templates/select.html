@@ -131,7 +131,7 @@
             <div class="col-12">
                 <div class="btn-group btn-group-sm w-100" role="group" aria-label="星级筛选">
                     <a href="?outing_id={{ outing_id }}{% if current_date %}&date={{ current_date }}{% endif %}"
-                       class="btn btn-outline-secondary {{ 'active' if not current_rating else '' }}">全部</a>
+                       class="btn btn-outline-secondary {{ 'active' if not current_rating and not current_unprocessed else '' }}">全部</a>
                     <a href="?rating=5&outing_id={{ outing_id }}{% if current_date %}&date={{ current_date }}{% endif %}"
                        class="btn btn-outline-success {{ 'active' if current_rating == '5' else '' }}">🌟🌟🌟🌟🌟 精选</a>
                     <a href="?rating=4&outing_id={{ outing_id }}{% if current_date %}&date={{ current_date }}{% endif %}"
@@ -142,6 +142,8 @@
                        class="btn btn-outline-danger {{ 'active' if current_rating == '1' else '' }}">❌ 淘汰</a>
                     <a href="?rating=0&outing_id={{ outing_id }}{% if current_date %}&date={{ current_date }}{% endif %}"
                        class="btn btn-outline-dark {{ 'active' if current_rating == '0' else '' }}">🚫 无鸟</a>
+                    <a href="?unprocessed=1&outing_id={{ outing_id }}{% if current_date %}&date={{ current_date }}{% endif %}"
+                       class="btn btn-outline-warning {{ 'active' if current_unprocessed else '' }}">⏳ 只看未处理</a>
                 </div>
             </div>
         </div>
@@ -887,10 +889,10 @@
                 return;
             }
 
-            fetch(`/api/search-species?q=${encodeURIComponent(query)}`)
+            fetch(`/api/search_species?q=${encodeURIComponent(query)}`)
                 .then(r => r.json())
                 .then(data => {
-                    reviewSpeciesMatches = data.results || [];
+                    reviewSpeciesMatches = Array.isArray(data) ? data : (data.results || []);
                     renderReviewSpeciesMatches();
                 })
                 .catch(e => console.error(e));
