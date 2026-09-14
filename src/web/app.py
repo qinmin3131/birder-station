@@ -376,9 +376,9 @@ def search_species(q: str):
     return taxonomy_service.search_species(create_db_manager, q)
 
 @app.get("/api/taxonomy/tree")
-def get_taxonomy_tree(include_empty: bool = True, date: str = None):
-    """获取分类树，支持显示/隐藏空层级和日期筛选"""
-    return taxonomy_service.get_taxonomy_tree(create_db_manager, include_empty, date)
+def get_taxonomy_tree(include_empty: bool = True, date: str = None, outing_id: int = 0):
+    """获取分类树，支持显示/隐藏空层级、日期筛选和外拍筛选"""
+    return taxonomy_service.get_taxonomy_tree(create_db_manager, include_empty, date, outing_id)
 
 @app.get("/api/taxonomy/stats")
 def get_taxonomy_stats(level: str, date: str = None):

@@ -10,11 +10,11 @@ def search_species(create_db_manager, q: str):
         manager.close()
 
 
-def get_taxonomy_tree(create_db_manager, include_empty: bool = True, date: str = None):
+def get_taxonomy_tree(create_db_manager, include_empty: bool = True, date: str = None, outing_id: int = 0):
     manager = create_db_manager()
     try:
-        if date:
-            return manager.get_taxonomy_tree(include_empty=include_empty, date_filter=date)
+        if date or outing_id:
+            return manager.get_taxonomy_tree(include_empty=include_empty, date_filter=date, outing_id=outing_id)
         return manager.get_taxonomy_tree_fast(include_empty=include_empty)
     finally:
         manager.close()

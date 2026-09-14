@@ -547,22 +547,30 @@ class IOCManager:
         ''', (query, q_start, q_like, q_like, q_like, limit))
         return [dict(row) for row in cursor.fetchall()]
 
-    def get_taxonomy_tree(self, include_empty: bool = True, date_filter: str = None) -> List[Dict]:
+    def get_taxonomy_tree(self, include_empty: bool = True, date_filter: str = None, outing_id: int = 0) -> List[Dict]:
         """
         获取完整的分类树结构（目-科-属-物种）
 
         Args:
             include_empty: 是否包含没有照片的层级
             date_filter: 可选日期过滤器，格式为 "YYYYMMDD"
+            outing_id: 可选外拍ID，用于筛选特定外拍的物种
 
         Returns:
             分类树列表，每个元素是一个目（Order）对象，包含其下的科、属、物种
         """
         params = []
-        count_expr = "COUNT(DISTINCT p.id)"
-        if date_filter:
+        if date_filter and outing_id:
+            count_expr = "COUNT(DISTINCT CASE WHEN p.captured_date = ? AND p.outing_id = ? THEN p.id END)"
+            params.extend([date_filter, outing_id])
+        elif date_filter:
             count_expr = "COUNT(DISTINCT CASE WHEN p.captured_date = ? THEN p.id END)"
             params.append(date_filter)
+        elif outing_id:
+            count_expr = "COUNT(DISTINCT CASE WHEN p.outing_id = ? THEN p.id END)"
+            params.append(outing_id)
+        else:
+            count_expr = "COUNT(DISTINCT p.id)"
 
         # Step 1: Get all taxonomy data with photo counts in ONE query
         # This replaces the 12,500+ individual queries with a single efficient query
@@ -985,8 +993,10 @@ class IOCManager:
         ''', (min_count,))
         return [dict(row) for row in cursor.fetchall()]
 
-    def get_taxonomy_tree_fast(self, include_empty: bool = False) -> List[Dict]:
+    def get_taxonomy_tree_fast(self, include_empty: bool = False, outing_id: int = 0) -> List[Dict]:
         """使用预计算统计表的快速分类树查询"""
+        if outing_id:
+            return self.get_taxonomy_tree(include_empty=include_empty, outing_id=outing_id)
         # Get all stats
         stats = self.get_species_stats_fast(min_count=0 if include_empty else 1)
 
