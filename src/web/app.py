@@ -7,7 +7,6 @@ import asyncio
 import json
 import platform
 import subprocess
-from datetime import datetime
 from contextlib import asynccontextmanager
 from pathlib import Path
 from urllib.parse import urlencode
@@ -16,7 +15,7 @@ from fastapi.responses import HTMLResponse, FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
-from sqlalchemy import create_engine, func, cast, String
+from sqlalchemy import create_engine, func
 from sqlalchemy.orm import sessionmaker
 from typing import Optional, List, Any, Dict
 
@@ -745,14 +744,6 @@ class CorrectSpeciesRequest(BaseModel):
     write_metadata: bool = True
 
 
-class PhotoTagsRequest(BaseModel):
-    tags: List[str] = []
-
-
-class PhotoNoteRequest(BaseModel):
-    note: str = ""
-
-
 class EmptyTrashRequest(BaseModel):
     outing_id: int = 0
 
@@ -769,48 +760,6 @@ def _load_json(value):
     return value
 
 
-def _aggregate_ungrouped_photos(ungrouped_photos: list, threshold_minutes: int = 2) -> list:
-    """将无分组照片按时间间隔聚合为虚拟组
-    
-    Args:
-        ungrouped_photos: 无分组照片列表（已按captured_at升序）
-        threshold_minutes: 时间间隔阈值（分钟）
-    
-    Returns:
-        虚拟组列表，每个元素是照片列表
-    """
-    if not ungrouped_photos:
-        return []
-    
-    groups = []
-    current_group = [ungrouped_photos[0]]
-    
-    for i in range(1, len(ungrouped_photos)):
-        prev_photo = ungrouped_photos[i - 1]
-        curr_photo = ungrouped_photos[i]
-        
-        # 计算时间间隔
-        if prev_photo.captured_at and curr_photo.captured_at:
-            time_diff = (curr_photo.captured_at - prev_photo.captured_at).total_seconds() / 60
-        elif prev_photo.captured_date and curr_photo.captured_date:
-            # 如果 captured_at 为 None，使用 captured_date 进行分组
-            if prev_photo.captured_date == curr_photo.captured_date:
-                time_diff = 0
-            else:
-                time_diff = float('inf')
-        else:
-            time_diff = float('inf')
-        
-        if time_diff <= threshold_minutes:
-            current_group.append(curr_photo)
-        else:
-            groups.append(current_group)
-            current_group = [curr_photo]
-    
-    groups.append(current_group)
-    return groups
-
-
 # --- Three-domain web routes ---
 def _processed_condition():
     """选片"已处理"判定条件：选中且鸟种已确认（NULL 视为已确认），或已淘汰。
@@ -821,8 +770,7 @@ def _processed_condition():
     cn_confirmed = (Photo.primary_bird_cn.is_(None)) | (Photo.primary_bird_cn != "待确认鸟种")
     sci_confirmed = (Photo.scientific_name.is_(None)) | (Photo.scientific_name != "Uncertain")
     rejected = func.coalesce(Photo.rating, 0) == -1
-    tagged = func.coalesce(cast(Photo.tags, String), "").notin_(["[]", ""])
-    return ((Photo.is_selected == True) & cn_confirmed & sci_confirmed) | rejected | tagged
+    return ((Photo.is_selected == True) & cn_confirmed & sci_confirmed) | rejected
 
 
 def _compute_select_progress(session, outing_id: int = 0, date: str = "") -> dict:
@@ -906,7 +854,7 @@ def select_page(request: Request, date: str = "", outing_id: int = 0, rating: st
             query = query.filter(~_processed_condition())
         elif rating:
             query = _apply_rating_filter(query, rating)
-        photos = query.order_by(Photo.captured_date.asc(), Photo.id.asc()).limit(500).all()
+        photos = query.order_by(Photo.captured_date.desc(), Photo.id.desc()).limit(500).all()
 
         # Separate grouped and ungrouped photos
         grouped: dict[int, list[Photo]] = {}
@@ -918,23 +866,11 @@ def select_page(request: Request, date: str = "", outing_id: int = 0, rating: st
                 key = p.captured_date or "未知日期"
                 ungrouped.setdefault(key, []).append(p)
 
-        # 将无分组照片按 captured_at 排序
-        ungrouped_sorted = []
-        for photos_list in ungrouped.values():
-            ungrouped_sorted.extend(photos_list)
-        ungrouped_sorted.sort(key=lambda p: (p.captured_at or datetime.min, p.id))
-
-        # 聚合无分组照片为虚拟组
-        virtual_groups = _aggregate_ungrouped_photos(ungrouped_sorted)
-
         display_groups = []
         gid = 1
 
-        # 渲染连拍组（按组内最早照片时间升序）
-        group_ids = sorted(grouped.keys(), key=lambda gid: min(
-            (p.captured_at for p in grouped[gid] if p.captured_at),
-            default=datetime.min
-        ))
+        # Render burst groups first, ordered by best photo (highest quality first)
+        group_ids = sorted(grouped.keys())
         for group_id in group_ids:
             group_photos = grouped[group_id]
             best = max(group_photos, key=lambda p: (p.quality_score or 0, p.id))
@@ -971,24 +907,21 @@ def select_page(request: Request, date: str = "", outing_id: int = 0, rating: st
             })
             gid += 1
 
-        # 渲染虚拟组（按最早照片时间升序）
-        for group_photos in virtual_groups:
-            best = group_photos[0]  # 虚拟组中第一张作为代表
-            members = sorted(group_photos, key=lambda p: (p.captured_at or p.id, p.id))
+        # Render ungrouped photos by captured_date (one group per date)
+        for key in sorted(ungrouped.keys(), reverse=True):
+            group_photos = ungrouped[key]
             display_groups.append({
                 "id": gid,
                 "type": "single",
-                "group_id": 0,
-                "date": best.captured_date or "未知日期",
-                "best_photo_id": 0,
-                "photo_count": len(members),
-                "primary_bird_cn": best.primary_bird_cn,
-                "scientific_name": best.scientific_name,
-                "quality_score": best.quality_score or 0,
-                "is_selected": best.is_selected or False,
-                "is_rejected": best.rating == -1,
-                "web_processed_path": resolve_processed_web_path(best.file_path) if best.file_path else None,
-                "web_raw_path": resolve_web_path(best.original_path) if best.original_path else None,
+                "date": key,
+                "photo_count": len(group_photos),
+                "primary_bird_cn": group_photos[0].primary_bird_cn,
+                "scientific_name": group_photos[0].scientific_name,
+                "quality_score": group_photos[0].quality_score or 0,
+                "is_selected": group_photos[0].is_selected or False,
+                "is_rejected": group_photos[0].rating == -1,
+                "web_processed_path": resolve_processed_web_path(group_photos[0].file_path) if group_photos[0].file_path else None,
+                "web_raw_path": resolve_web_path(group_photos[0].original_path) if group_photos[0].original_path else None,
                 "photos": [
                     {
                         "id": p.id,
@@ -1002,7 +935,7 @@ def select_page(request: Request, date: str = "", outing_id: int = 0, rating: st
                         "web_processed_path": resolve_processed_web_path(p.file_path) if p.file_path else None,
                         "web_raw_path": resolve_web_path(p.original_path) if p.original_path else None,
                     }
-                    for p in members
+                    for p in group_photos
                 ],
             })
             gid += 1
@@ -1146,84 +1079,6 @@ def select_auto_pick(req: AutoPickRequest):
         session.close()
 
 
-@app.get("/api/tags")
-def list_all_tags():
-    """List all distinct user tags across photos, sorted, for autocomplete."""
-    session = get_sqlalchemy_session()
-    try:
-        rows = session.query(Photo.tags).filter(Photo.tags.isnot(None)).all()
-        tag_set = set()
-        for (tags,) in rows:
-            if tags:
-                tag_set.update(t for t in tags if t)
-        return {"tags": sorted(tag_set)}
-    finally:
-        session.close()
-
-
-@app.post("/api/photo/{photo_id}/tags")
-def save_photo_tags(photo_id: int, request: PhotoTagsRequest):
-    """Save user tags for a photo and refresh its metadata file."""
-    session = get_sqlalchemy_session()
-    try:
-        photo = session.query(Photo).filter(Photo.id == photo_id).first()
-        if not photo:
-            raise HTTPException(status_code=404, detail="Photo not found")
-
-        cleaned = []
-        for t in request.tags:
-            t = (t or "").strip()
-            if t and t not in cleaned:
-                cleaned.append(t)
-        photo.tags = cleaned
-        session.commit()
-
-        metadata_written = False
-        try:
-            write_mode = config.get("metadata", {}).get("write_mode", "xmp_sidecar")
-            metadata_written = write_metadata_for_photo(photo, exif_writer, write_mode=write_mode)
-        except Exception as e:
-            logger.warning(f"Metadata write failed after tags save for photo {photo_id}: {e}")
-
-        return {"status": "success", "photo_id": photo_id, "tags": cleaned, "metadata_written": metadata_written}
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to save tags for photo {photo_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        session.close()
-
-
-@app.post("/api/photo/{photo_id}/note")
-def save_photo_note(photo_id: int, request: PhotoNoteRequest):
-    """Save a free-text note for a photo and refresh its metadata file."""
-    session = get_sqlalchemy_session()
-    try:
-        photo = session.query(Photo).filter(Photo.id == photo_id).first()
-        if not photo:
-            raise HTTPException(status_code=404, detail="Photo not found")
-
-        photo.note = request.note.strip()
-        session.commit()
-
-        metadata_written = False
-        try:
-            write_mode = config.get("metadata", {}).get("write_mode", "xmp_sidecar")
-            metadata_written = write_metadata_for_photo(photo, exif_writer, write_mode=write_mode)
-        except Exception as e:
-            logger.warning(f"Metadata write failed after note save for photo {photo_id}: {e}")
-
-        return {"status": "success", "photo_id": photo_id, "note": photo.note, "metadata_written": metadata_written}
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to save note for photo {photo_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        session.close()
-
-
 @app.post("/api/photo/{photo_id}/write_metadata")
 def write_photo_metadata(photo_id: int):
     """Write EXIF/XMP metadata for a single photo back to its original file."""
@@ -1352,8 +1207,6 @@ def get_photo_review(photo_id: int):
                 "is_selected": photo.is_selected,
                 "rating": photo.rating,
                 "group_id": photo.group_id,
-                "tags": photo.tags or [],
-                "note": photo.note or "",
             },
             "candidates": candidates,
             "quality_details": quality_details,
@@ -1370,29 +1223,31 @@ def get_photo_review(photo_id: int):
         session.close()
 
 
-def _get_all_photo_ids_ordered(session) -> list[int]:
-    """获取所有照片ID的全局序列（按时间升序）"""
-    all_photos = (
-        session.query(Photo.id)
-        .order_by(Photo.captured_date.asc(), Photo.id.asc())
-        .all()
-    )
-    return [row[0] for row in all_photos]
-
-
 def _get_review_neighbors(session, photo: Photo) -> tuple[Optional[int], Optional[int]]:
-    """返回该照片在整个序列中的前后照片ID"""
-    all_ids = _get_all_photo_ids_ordered(session)
-    if not all_ids:
+    """Return previous/next photo id within the same group or same captured_date."""
+    if photo.group_id:
+        siblings = (
+            session.query(Photo.id)
+            .filter(Photo.group_id == photo.group_id)
+            .order_by(Photo.captured_at.asc(), Photo.id.asc())
+            .all()
+        )
+    else:
+        siblings = (
+            session.query(Photo.id)
+            .filter(Photo.captured_date == photo.captured_date)
+            .order_by(Photo.captured_at.asc(), Photo.id.asc())
+            .all()
+        )
+    ids = [row[0] for row in siblings]
+    if not ids:
         return None, None
-    
     try:
-        idx = all_ids.index(photo.id)
+        idx = ids.index(photo.id)
     except ValueError:
         return None, None
-    
-    prev_id = all_ids[idx - 1] if idx > 0 else None
-    next_id = all_ids[idx + 1] if idx < len(all_ids) - 1 else None
+    prev_id = ids[idx - 1] if idx > 0 else None
+    next_id = ids[idx + 1] if idx < len(ids) - 1 else None
     return prev_id, next_id
 
 
