@@ -108,3 +108,63 @@ def test_index_folder_with_stats_applies_location_info(repo, tmp_path):
     assert photo.location_level1 == "福建"
     assert photo.location_level2 == "福州"
     assert photo.location_level3 == "森林公园"
+
+
+def test_reimport_adds_unprocessed_photo_to_recognition_queue(repo, tmp_path):
+    """重新导入时，已存在但未处理的照片应加入识别队列。"""
+    indexer = PhotoIndexer(repo)
+
+    img_path = tmp_path / "bird.jpg"
+    Image.new("RGB", (100, 100), color="red").save(img_path)
+
+    # 首次导入：照片入库但未处理（无 bird_bbox / 鸟种信息）
+    first = indexer.index_folder_with_stats(tmp_path)
+    assert first["indexed"] == 1
+    assert len(first["photo_ids"]) == 1
+    photo_id = first["photo_ids"][0]
+
+    # 二次导入：未处理的照片应重新加入识别队列
+    second = indexer.index_folder_with_stats(tmp_path)
+    assert second["indexed"] == 0
+    assert second["skipped"] == 1
+    assert second["reprocessed"] == 1
+    assert second["photo_ids"] == [photo_id]
+
+
+def test_reimport_skips_already_processed_photo(repo, tmp_path):
+    """重新导入时，已处理（有鸟种或鸟框）的照片不应加入识别队列。"""
+    indexer = PhotoIndexer(repo)
+
+    img_path = tmp_path / "bird.jpg"
+    Image.new("RGB", (100, 100), color="green").save(img_path)
+
+    first = indexer.index_folder_with_stats(tmp_path)
+    photo_id = first["photo_ids"][0]
+
+    # 模拟照片已被处理：设置鸟种信息
+    photo = repo.get_by_id(photo_id)
+    photo.primary_bird_cn = "麻雀"
+    photo.scientific_name = "Passer montanus"
+    repo.session.commit()
+
+    second = indexer.index_folder_with_stats(tmp_path)
+    assert second["skipped"] == 1
+    assert second["reprocessed"] == 0
+    assert second["photo_ids"] == []
+
+
+def test_reimport_updates_existing_photo_outing_id(repo, tmp_path):
+    """重新导入时，已有照片的 outing_id 应修正为当前外拍。"""
+    indexer = PhotoIndexer(repo)
+
+    img_path = tmp_path / "bird.jpg"
+    Image.new("RGB", (100, 100), color="blue").save(img_path)
+
+    # 首次导入到 outing 1
+    first = indexer.index_folder_with_stats(tmp_path, outing_id=1)
+    photo_id = first["photo_ids"][0]
+    assert repo.get_by_id(photo_id).outing_id == 1
+
+    # 二次导入到 outing 2：已有照片应归入 outing 2
+    second = indexer.index_folder_with_stats(tmp_path, outing_id=2)
+    assert repo.get_by_id(photo_id).outing_id == 2

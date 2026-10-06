@@ -187,14 +187,14 @@ def resolve_processed_web_path(
             rel_part = norm_abs[len(norm_base):].lstrip("/\\")
             return f"/processed/{rel_part.replace(os.sep, '/')}"
 
-        logger.warning(
+        logger.debug(
             "resolve_processed_web_path: path '%s' is not under processed_dir %s",
             abs_path,
             processed_dir,
         )
         return None
     except Exception as exc:
-        logger.warning("Failed to resolve processed path '%s': %s", file_path_str, exc)
+        logger.debug("Failed to resolve processed path '%s': %s", file_path_str, exc)
         return None
 
 

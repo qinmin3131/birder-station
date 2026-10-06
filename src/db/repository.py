@@ -71,10 +71,14 @@ class OutingRepository:
     def __init__(self, session: Session):
         self.session = session
 
-    def get_or_create(self, name: str, start_date: str) -> Outing:
-        outing = self.session.query(Outing).filter(
-            Outing.name == name, Outing.start_date == start_date
-        ).first()
+    def get_or_create(self, name: str, start_date: str = None) -> Outing:
+        """按外拍名称查找已有外拍，找不到则新建。
+
+        文件夹名通常已包含日期（如 20260101_北京_奥森），按 name 匹配即可
+        保证重复导入同一文件夹时沿用原有外拍 ID，而不会因导入日期不同
+        创建重复外拍。
+        """
+        outing = self.session.query(Outing).filter(Outing.name == name).first()
         if not outing:
             outing = Outing(name=name, start_date=start_date)
             self.session.add(outing)

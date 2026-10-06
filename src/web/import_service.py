@@ -125,8 +125,11 @@ class ImportService:
         try:
             repo = OutingRepository(session)
             folder_name = folder_path.name
-            today = datetime.now().strftime("%Y%m%d")
-            outing = repo.get_or_create(name=folder_name, start_date=today)
+            # 从文件夹名解析拍摄日期（如 20260102_北京_玉渊潭 -> 20260102），
+            # 解析不到时回退到当天，保证外拍列表按拍摄日期排序而非导入日期
+            parsed_date, _, _ = PathParser.parse_folder_name(folder_name)
+            start_date = parsed_date or datetime.now().strftime("%Y%m%d")
+            outing = repo.get_or_create(name=folder_name, start_date=start_date)
             return outing.id
         finally:
             session.close()

@@ -36,25 +36,151 @@
         .nav-arrow.prev { left: 16px; }
         .nav-arrow.next { right: 16px; }
         .nav-arrow:disabled { opacity: 0.3; cursor: not-allowed; }
+        /* 左侧物种目录树 */
+        .taxonomy-sidebar {
+            width: 280px;
+            flex-shrink: 0;
+            height: calc(100vh - 80px);
+            overflow-y: auto;
+            position: sticky;
+            top: 72px;
+            border-right: 1px solid #e5e7eb;
+            padding: 12px 8px;
+            background: #fff;
+        }
+        .taxonomy-sidebar .sidebar-title {
+            font-weight: 600;
+            font-size: 0.9rem;
+            color: #374151;
+            padding: 4px 8px 10px;
+            border-bottom: 1px solid #e5e7eb;
+            margin-bottom: 8px;
+        }
+        .tree-node { padding: 2px 0; }
+        .tree-label {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            padding: 3px 6px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            line-height: 1.4;
+            text-decoration: none;
+            color: #1f2937;
+        }
+        .tree-label:hover { background: #f3f4f6; text-decoration: none; color: #1f2937; }
+        .tree-label.active { background: #dbeafe; color: #1d4ed8; font-weight: 600; }
+        .tree-label .count {
+            margin-left: auto;
+            font-size: 0.72rem;
+            color: #9ca3af;
+            background: #f3f4f6;
+            padding: 0 5px;
+            border-radius: 8px;
+        }
+        .tree-label.active .count { background: #bfdbfe; color: #1d4ed8; }
+        .tree-toggle {
+            display: inline-flex;
+            width: 14px;
+            height: 14px;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.7rem;
+            color: #9ca3af;
+            flex-shrink: 0;
+        }
+        .tree-children { margin-left: 14px; border-left: 1px solid #e5e7eb; padding-left: 4px; }
+        .tree-children.collapsed { display: none; }
+        .tree-leaf { margin-left: 18px; }
+        @media (max-width: 991.98px) {
+            .taxonomy-sidebar { display: none; }
+        }
     </style>
 </head>
 <body>
     {% with active_page='gallery' %}{% include 'navbar.html' %}{% endwith %}
 
-    <div class="container-fluid mt-4 px-4">
+    <div class="d-flex">
+        <!-- 左侧物种目录树 -->
+        <aside class="taxonomy-sidebar">
+            <div class="sidebar-title">
+                <i class="bi bi-diagram-3 me-1"></i>物种目录
+                {% if selected_orders or selected_families or selected_species %}
+                <a href="/gallery?{{ base_query }}" class="float-end text-muted small gallery-ajax-link" title="清除物种筛选">
+                    <i class="bi bi-x-circle"></i>
+                </a>
+                {% endif %}
+            </div>
+            <div class="mb-2 px-1">
+                <input type="search" id="taxonomySearch" class="form-control form-control-sm" placeholder="搜索目/科/种…" autocomplete="off">
+            </div>
+            {% if taxonomy_tree %}
+            {% for order in taxonomy_tree %}
+            <div class="tree-node" data-search="{{ order.order_cn }}">
+                <a class="tree-label gallery-ajax-link {% if order.order_cn in selected_orders %}active{% endif %}"
+                   href="/gallery?{% if non_tax_query %}{{ non_tax_query }}&amp;{% endif %}orders={{ order.order_cn|urlencode }}">
+                    <span class="tree-toggle" onclick="event.preventDefault(); toggleTree(this);">▶</span>
+                    <span>{{ order.order_cn }}</span>
+                    <span class="count">{{ order.photo_count }}</span>
+                </a>
+                <div class="tree-children collapsed">
+                    {% for family in order.families %}
+                    <div class="tree-node" data-search="{{ order.order_cn }} {{ family.family_cn }} {{ family.family_sci }}">
+                        <a class="tree-label gallery-ajax-link {% if family.family_cn in selected_families %}active{% endif %}"
+                           href="/gallery?{% if non_tax_query %}{{ non_tax_query }}&amp;{% endif %}families={{ family.family_cn|urlencode }}">
+                            <span class="tree-toggle" onclick="event.preventDefault(); toggleTree(this);">▶</span>
+                            <span>{{ family.family_cn }}</span>
+                            <span class="count">{{ family.photo_count }}</span>
+                        </a>
+                        <div class="tree-children collapsed">
+                            {% for genus in family.genera %}
+                            {% for sp in genus.species %}
+                            <div class="tree-node tree-leaf" data-search="{{ order.order_cn }} {{ family.family_cn }} {{ sp.chinese_name or '' }} {{ sp.scientific_name or '' }} {{ sp.english_name or '' }}">
+                                <a class="tree-label gallery-ajax-link {% if sp.chinese_name in selected_species or sp.scientific_name in selected_species %}active{% endif %}"
+                                   href="/gallery?{% if non_tax_query %}{{ non_tax_query }}&amp;{% endif %}species={{ (sp.chinese_name or sp.scientific_name)|urlencode }}">
+                                    <span>{{ sp.chinese_name or sp.scientific_name }}</span>
+                                    <span class="count">{{ sp.photo_count }}</span>
+                                </a>
+                            </div>
+                            {% endfor %}
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endfor %}
+            {% else %}
+            <div class="text-muted small p-2">暂无物种数据</div>
+            {% endif %}
+        </aside>
+
+        <main class="flex-grow-1">
+        <div class="container-fluid mt-4 px-4">
         <!-- 筛选栏 -->
         <div class="row mb-3">
             <div class="col-12">
                 <div class="card">
                     <div class="card-body">
                         <form id="filterForm" action="/gallery" method="get" class="row g-2 align-items-end">
+                            <!-- 保留侧边栏目录树选中的目/科/种筛选 -->
+                            {% for o in selected_orders %}
+                            <input type="hidden" name="orders" value="{{ o }}">
+                            {% endfor %}
+                            {% for f in selected_families %}
+                            <input type="hidden" name="families" value="{{ f }}">
+                            {% endfor %}
+                            {% for s in selected_species %}
+                            <input type="hidden" name="species" value="{{ s }}">
+                            {% endfor %}
                             <!-- 视图切换 -->
                             <div class="col-12 col-md-auto">
                                 <div class="btn-group btn-group-sm" role="group">
-                                    <a href="/gallery?{{ base_query|default('') }}" class="btn btn-outline-secondary {{ 'active' if not current_view else '' }}">全部</a>
-                                    <a href="/gallery?view=selected&amp;{{ base_query|default('') }}" class="btn btn-outline-success {{ 'active' if current_view == 'selected' else '' }}">已选中</a>
-                                    <a href="/gallery?view=unselected&amp;{{ base_query|default('') }}" class="btn btn-outline-primary {{ 'active' if current_view == 'unselected' else '' }}">未选中</a>
-                                    <a href="/gallery?view=uncertain&amp;{{ base_query|default('') }}" class="btn btn-outline-warning {{ 'active' if current_view == 'uncertain' else '' }}">待确认</a>
+                                    <a href="/gallery?{{ base_query|default('') }}" class="btn btn-outline-secondary gallery-ajax-link {{ 'active' if not current_view else '' }}">全部</a>
+                                    <a href="/gallery?view=selected&amp;{{ base_query|default('') }}" class="btn btn-outline-success gallery-ajax-link {{ 'active' if current_view == 'selected' else '' }}">已选中</a>
+                                    <a href="/gallery?view=unselected&amp;{{ base_query|default('') }}" class="btn btn-outline-primary gallery-ajax-link {{ 'active' if current_view == 'unselected' else '' }}">未选中</a>
+                                    <a href="/gallery?view=uncertain&amp;{{ base_query|default('') }}" class="btn btn-outline-warning gallery-ajax-link {{ 'active' if current_view == 'uncertain' else '' }}">待确认</a>
                                 </div>
                             </div>
 
@@ -71,30 +197,6 @@
                             <div class="col-6 col-md-2">
                                 <label class="form-label small text-muted mb-0">结束日期</label>
                                 <input type="date" class="form-control form-control-sm" name="date_to" value="{{ date_to }}">
-                            </div>
-
-                            <!-- 鸟种多选 -->
-                            <div class="col-6 col-md-2">
-                                <label class="form-label small text-muted mb-0">鸟种</label>
-                                <select class="form-select form-select-sm" name="species" multiple size="1" style="min-height: 2.5rem;">
-                                    {% for sp in available_species %}
-                                    <option value="{{ sp.cn if sp.cn else sp.sci }}" {{ 'selected' if (sp.cn in selected_species) or (sp.sci in selected_species) else '' }}>
-                                        {{ sp.cn }} ({{ sp.count }})
-                                    </option>
-                                    {% endfor %}
-                                </select>
-                            </div>
-
-                            <!-- 科多选 -->
-                            <div class="col-6 col-md-2">
-                                <label class="form-label small text-muted mb-0">科</label>
-                                <select class="form-select form-select-sm" name="families" multiple size="1" style="min-height: 2.5rem;">
-                                    {% for fam in available_families %}
-                                    <option value="{{ fam.family_cn }}" {{ 'selected' if fam.family_cn in selected_families else '' }}>
-                                        {{ fam.family_cn }} ({{ fam.count }})
-                                    </option>
-                                    {% endfor %}
-                                </select>
                             </div>
 
                             <!-- 省 -->
@@ -136,7 +238,6 @@
                             <div class="col-6 col-md-auto d-flex gap-2">
                                 <button class="btn btn-sm btn-primary" type="submit">筛选</button>
                                 <a href="/gallery" class="btn btn-sm btn-outline-secondary">重置</a>
-                                <button class="btn btn-sm btn-info text-white" type="button" onclick="writeSelectedMetadata()">💾 写入选中照片元数据</button>
                                 <button class="btn btn-sm btn-outline-danger" type="button" onclick="emptyTrash()">🗑️ 清空淘汰照片</button>
                             </div>
 
@@ -153,65 +254,8 @@
             </div>
         </div>
 
-        <div class="status-bar">
-            <span class="text-muted small">
-                显示 {{ offset + 1 }}-{{ offset + photos|length }} / 共 {{ total_count }} 张
-                {% if current_outing %} | 外拍：{{ current_outing.name }}（{{ current_outing.start_date }}）{% endif %}
-                {% if current_view %} | 视图：{{ current_view }} {% endif %}
-                {% if query %} | 搜索："{{ query }}" {% endif %}
-                {% if date_from or date_to %} | 日期：{{ date_from }} ~ {{ date_to }} {% endif %}
-                {% if selected_species %} | 鸟种：{{ selected_species|join('、') }} {% endif %}
-                {% if selected_families %} | 科：{{ selected_families|join('、') }} {% endif %}
-                {% if selected_level1 or selected_level2 or selected_level3 %}
-                    | 地点：{{ selected_level1|join('、') }} / {{ selected_level2|join('、') }} / {{ selected_level3|join('、') }}
-                {% endif %}
-                {% if selected_locations %} | 地点标签：{{ selected_locations|join('、') }} {% endif %}
-            </span>
-            <div class="btn-group btn-group-sm">
-                <a href="/gallery?{{ base_query }}&offset={{ prev_offset }}{% if current_view %}&view={{ current_view }}{% endif %}" class="btn btn-outline-secondary {% if not has_prev %}disabled{% endif %}">上一页</a>
-                <a href="/gallery?{{ base_query }}&offset={{ next_offset }}{% if current_view %}&view={{ current_view }}{% endif %}" class="btn btn-outline-secondary {% if not has_next %}disabled{% endif %}">下一页</a>
-            </div>
-        </div>
-
-        {% if not photos %}
-        <div class="alert alert-info">暂无照片，请先在选片页面或管理任务中导入。</div>
-        {% endif %}
-
-        <div class="photo-grid">
-            {% for photo in photos %}
-            {% set is_uncertain = (photo.primary_bird_cn == '待确认鸟种' or photo.scientific_name == 'Uncertain') %}
-            {% set processed_path = photo.web_processed_path if photo.web_processed_path else '' %}
-            {% set raw_path = photo.web_raw_path if photo.web_raw_path else '' %}
-            <div class="photo-card" id="photo-card-{{ photo.id }}">
-                <div class="card h-100 shadow-sm {{ 'status-uncertain' if is_uncertain else '' }}" onclick="openPhotoDetail({{ photo.id }})" style="cursor: pointer;">
-                    <div class="position-relative">
-                        <div class="btn-group btn-group-sm position-absolute top-0 start-0 m-1" style="z-index: 10;" onclick="event.stopPropagation();">
-                            {% if processed_path %}<a href="{{ processed_path }}" download class="btn btn-dark btn-sm">裁切</a>{% endif %}
-                            {% if raw_path %}<a href="{{ raw_path }}" download class="btn btn-dark btn-sm">原图</a>{% endif %}
-                        </div>
-                        <img src="{{ processed_path if processed_path else raw_path }}" class="card-img-top" alt="{{ photo.primary_bird_cn }}" loading="lazy">
-                    </div>
-                    <div class="card-body">
-                        <h5 class="card-title">
-                            {{ photo.primary_bird_cn }}
-                            {% if is_uncertain %}<span class="badge badge-uncertain small align-top">?</span>{% endif %}
-                        </h5>
-                        <h6 class="card-subtitle mb-2 text-muted fst-italic">{{ photo.scientific_name }}</h6>
-                        <div class="d-flex justify-content-between align-items-center mb-2">
-                            <span class="location-tag">📍 {{ photo.location_tag }}</span>
-                            <span class="badge bg-light text-dark border">{{ ((photo.confidence_score or 0) * 100)|int }}%</span>
-                        </div>
-                        <div class="path-info" title="{{ photo.filename }}">📁 {{ photo.filename }}</div>
-                        {% if photo.quality_score %}
-                        <div class="mt-2">
-                            <span class="badge bg-info text-dark">画质 {{ photo.quality_score|int }}</span>
-                        </div>
-                        {% endif %}
-                    </div>
-                    <div class="card-footer text-muted small">{{ photo.captured_date }}</div>
-                </div>
-            </div>
-            {% endfor %}
+        <div id="galleryContent">
+        {% include "_gallery_content.html" %}
         </div>
 
         <div class="modal fade" id="photoDetailModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static">
@@ -280,37 +324,170 @@
                 </div>
             </div>
         </div>
-
-        <div class="d-flex justify-content-center mt-4 mb-5">
-            <div class="btn-group btn-group-sm">
-                <a href="/gallery?{{ base_query }}&offset={{ prev_offset }}{% if current_view %}&view={{ current_view }}{% endif %}" class="btn btn-outline-secondary {% if not has_prev %}disabled{% endif %}">上一页</a>
-                <a href="/gallery?{{ base_query }}&offset={{ next_offset }}{% if current_view %}&view={{ current_view }}{% endif %}" class="btn btn-outline-secondary {% if not has_next %}disabled{% endif %}">下一页</a>
-            </div>
-        </div>
+    </div>
+        </main>
     </div>
 
     <script src="/lib/js/bootstrap.bundle.min.js"></script>
     <script>
-        function writeSelectedMetadata() {
-            const btn = document.querySelector('button[onclick="writeSelectedMetadata()"]');
-            fetch('/api/gallery/write_metadata', { method: 'POST' })
-                .then(r => r.json())
-                .then(data => {
-                    if (data.status === 'success') {
-                        btn.classList.remove('btn-info', 'text-white');
-                        btn.classList.add('btn-success');
-                        btn.textContent = `✅ 已写入 ${data.success_count}/${data.total}`;
-                    } else {
-                        throw new Error(data.detail || 'unknown error');
+        // 物种目录树折叠/展开
+        function toggleTree(toggleEl) {
+            const label = toggleEl.closest('.tree-label');
+            const children = label.nextElementSibling;
+            if (!children || !children.classList.contains('tree-children')) return;
+            children.classList.toggle('collapsed');
+            toggleEl.textContent = children.classList.contains('collapsed') ? '▶' : '▼';
+        }
+
+        // 自动展开包含当前激活筛选的树节点
+        document.addEventListener('DOMContentLoaded', () => {
+            document.querySelectorAll('.tree-label.active').forEach(label => {
+                let el = label;
+                while (el) {
+                    const children = el.nextElementSibling;
+                    if (children && children.classList.contains('tree-children')) {
+                        children.classList.remove('collapsed');
+                        const toggle = el.querySelector(':scope > .tree-toggle');
+                        if (toggle) toggle.textContent = '▼';
                     }
+                    el = el.parentElement.closest('.tree-node')?.querySelector(':scope > .tree-label');
+                }
+            });
+
+            // AJAX 局部刷新：拦截目录树、视图、分页等链接
+            document.addEventListener('click', (e) => {
+                const link = e.target.closest('.gallery-ajax-link');
+                if (!link) return;
+                e.preventDefault();
+                const url = link.getAttribute('href');
+                if (!url) return;
+                loadGalleryContent(url);
+            });
+
+            // 筛选表单 AJAX 提交
+            const filterForm = document.getElementById('filterForm');
+            if (filterForm) {
+                filterForm.addEventListener('submit', (e) => {
+                    e.preventDefault();
+                    const formData = new FormData(filterForm);
+                    const params = new URLSearchParams(formData).toString();
+                    loadGalleryContent('/gallery?' + params);
+                });
+            }
+
+            // 浏览器前进/后退
+            window.addEventListener('popstate', (e) => {
+                if (e.state && e.state.galleryUrl) {
+                    loadGalleryContent(e.state.galleryUrl, false);
+                }
+            });
+        });
+
+        // 加载图库内容（局部刷新）
+        function loadGalleryContent(url, pushState = true) {
+            const content = document.getElementById('galleryContent');
+            if (!content) {
+                window.location.href = url;
+                return;
+            }
+            // 显示加载状态
+            content.style.opacity = '0.4';
+            content.style.pointerEvents = 'none';
+
+            // 拼接 partial=1 参数
+            const sep = url.includes('?') ? '&' : '?';
+            const ajaxUrl = url + sep + 'partial=1';
+
+            fetch(ajaxUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+                .then(r => r.text())
+                .then(html => {
+                    content.innerHTML = html;
+                    content.style.opacity = '';
+                    content.style.pointerEvents = '';
+                    // 更新照片数据供大图查看器使用
+                    const photosDataEl = document.getElementById('galleryPhotosData');
+                    if (photosDataEl) {
+                        try { galleryPhotos = JSON.parse(photosDataEl.textContent); } catch (e) {}
+                    }
+                    // 重新绑定原图/裁切切换
+                    bindShowOriginalToggle();
+                    // 更新 URL
+                    if (pushState) {
+                        history.pushState({ galleryUrl: url }, '', url);
+                    }
+                    // 滚动到顶部
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
                 })
-                .catch(e => {
-                    console.error(e);
-                    btn.classList.remove('btn-info', 'text-white');
-                    btn.classList.add('btn-danger');
-                    btn.textContent = '❌ 失败';
+                .catch(err => {
+                    console.error('AJAX load failed:', err);
+                    content.style.opacity = '';
+                    content.style.pointerEvents = '';
+                    // 降级为整页跳转
+                    window.location.href = url;
                 });
         }
+
+        // 物种目录树搜索过滤
+        const taxonomySearchInput = document.getElementById('taxonomySearch');
+        if (taxonomySearchInput) {
+            taxonomySearchInput.addEventListener('input', () => {
+                const keyword = taxonomySearchInput.value.trim().toLowerCase();
+                const allNodes = document.querySelectorAll('.taxonomy-sidebar .tree-node');
+                if (!keyword) {
+                    allNodes.forEach(n => n.style.display = '');
+                    return;
+                }
+                // 先全部隐藏
+                allNodes.forEach(n => n.style.display = 'none');
+                // 显示匹配的叶子/科/目节点，并展开其父级
+                allNodes.forEach(node => {
+                    const text = (node.dataset.search || '').toLowerCase();
+                    if (text.includes(keyword)) {
+                        node.style.display = '';
+                        // 展开并显示所有祖先
+                        let parent = node.parentElement;
+                        while (parent) {
+                            if (parent.classList && parent.classList.contains('tree-children')) {
+                                parent.classList.remove('collapsed');
+                                const siblingNode = parent.closest('.tree-node');
+                                if (siblingNode) siblingNode.style.display = '';
+                            }
+                            parent = parent.parentElement;
+                        }
+                        // 如果是目或科节点，展开其子节点以便看到匹配的后代
+                        const children = node.querySelector(':scope > .tree-children');
+                        if (children) children.classList.remove('collapsed');
+                    }
+                });
+            });
+        }
+
+        // 原图/裁切 切换
+        function applyImageSource() {
+            const showOriginalToggle = document.getElementById('showOriginalToggle');
+            if (!showOriginalToggle) return;
+            const showOriginal = showOriginalToggle.checked;
+            document.querySelectorAll('.photo-grid-img').forEach(img => {
+                const raw = img.dataset.raw || '';
+                const processed = img.dataset.processed || '';
+                if (showOriginal) {
+                    img.src = raw || processed;
+                } else {
+                    img.src = processed || raw;
+                }
+            });
+        }
+        function bindShowOriginalToggle() {
+            const showOriginalToggle = document.getElementById('showOriginalToggle');
+            if (!showOriginalToggle) return;
+            showOriginalToggle.checked = localStorage.getItem('gallery_show_original') === '1';
+            applyImageSource();
+            showOriginalToggle.addEventListener('change', () => {
+                localStorage.setItem('gallery_show_original', showOriginalToggle.checked ? '1' : '0');
+                applyImageSource();
+            });
+        }
+        bindShowOriginalToggle();
 
         function emptyTrash() {
             fetch('/api/trash/preview?outing_id=0')
@@ -327,7 +504,9 @@
                     })
                         .then(r => r.json())
                         .then(res => {
-                            alert(`完成：回收 ${res.moved} 张，删除记录 ${res.deleted} 条，跳过 ${res.skipped} 张，失败 ${res.errors.length} 张`);
+                            let msg = `完成：回收 ${res.moved} 张，删除记录 ${res.deleted} 条，跳过 ${res.skipped} 张，失败 ${res.errors.length} 张`;
+                            if (res.hint) msg += '\n\n' + res.hint;
+                            alert(msg);
                             location.reload();
                         })
                         .catch(e => { console.error(e); alert('清空淘汰失败'); });
@@ -336,7 +515,7 @@
         }
 
         // Photo detail modal logic
-        const galleryPhotos = {{ photos | tojson }};
+        let galleryPhotos = {{ photos | tojson }};
         let detailPhotoIndex = 0;
         let detailCurrentData = null;
         let detailModal = null;
@@ -364,7 +543,6 @@
         }
 
         function loadPhotoDetail(photoId) {
-            detailResetTransform();
             fetch(`/api/photo/${photoId}/review`)
                 .then(r => r.json())
                 .then(data => {
@@ -479,10 +657,11 @@
             img.onload = () => {
                 detailNaturalWidth = img.naturalWidth;
                 detailNaturalHeight = img.naturalHeight;
+                // 先应用适合窗口的缩放，再设置 canvas 尺寸，避免闪现原尺寸
+                detailFitToWindow();
                 canvas.width = detailNaturalWidth;
                 canvas.height = detailNaturalHeight;
                 drawPhotoDetailCanvas(photo, data);
-                detailFitToWindow();
             };
         }
 

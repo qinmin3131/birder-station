@@ -8,6 +8,7 @@ import json
 import platform
 import subprocess
 from contextlib import asynccontextmanager
+from datetime import datetime as dt
 from pathlib import Path
 from urllib.parse import urlencode
 from fastapi import FastAPI, Request, HTTPException, WebSocket, Query
@@ -35,7 +36,7 @@ from src.utils.config_loader import load_config, validate_paths_config
 from src.core.io.path_generator import PathGenerator
 from src.core.indexer import PhotoIndexer
 from src.core.trash_service import TrashService
-from src.db.models import init_database as init_sqlalchemy_db, Photo, Species, PhotoGroup, Outing
+from src.db.models import init_database as init_sqlalchemy_db, Photo, Species, Taxonomy, PhotoGroup, Outing
 from src.db.repository import PhotoRepository, OutingRepository
 from src.db.stats import refresh_species_for_photo
 from src.web.routes.recognition import router as recognition_router
@@ -423,7 +424,12 @@ def search_taxonomy(q: str, limit: int = 20):
 
 @app.get("/api/outings")
 def list_outings():
-    """返回所有外拍列表，按日期倒序"""
+    """返回所有外拍列表，按拍摄日期倒序。
+
+    按文件夹名（Outing.name）倒序排列：文件夹名以 yyyyMMdd 开头，
+    按名倒序等价于按拍摄日期倒序，且不依赖可能被误存为导入日期的
+    start_date 字段，兼容历史数据。
+    """
     session = get_sqlalchemy_session()
     try:
         outings = (
@@ -437,7 +443,7 @@ def list_outings():
             )
             .outerjoin(Photo, Photo.outing_id == Outing.id)
             .group_by(Outing.id)
-            .order_by(Outing.start_date.desc(), Outing.created_at.desc())
+            .order_by(Outing.name.desc(), Outing.created_at.desc())
             .all()
         )
         return {
@@ -748,6 +754,14 @@ class EmptyTrashRequest(BaseModel):
     outing_id: int = 0
 
 
+class SaveTagsRequest(BaseModel):
+    tags: List[str] = []
+
+
+class SaveNoteRequest(BaseModel):
+    note: str = ""
+
+
 def _load_json(value):
     """Parse a JSON column value that may be a raw string or an already-decoded object."""
     if not value:
@@ -760,9 +774,25 @@ def _load_json(value):
     return value
 
 
+def _normalize_tags(raw) -> List[str]:
+    """Clean a raw tags value: strip whitespace, drop empties, dedupe (order kept)."""
+    if not raw:
+        return []
+    if isinstance(raw, str):
+        raw = _load_json(raw) or []
+    if not isinstance(raw, list):
+        return []
+    cleaned: List[str] = []
+    for item in raw:
+        tag = str(item).strip()
+        if tag and tag not in cleaned:
+            cleaned.append(tag)
+    return cleaned
+
+
 # --- Three-domain web routes ---
 def _processed_condition():
-    """选片"已处理"判定条件：选中且鸟种已确认（NULL 视为已确认），或已淘汰。
+    """选片"已处理"判定条件：选中且鸟种已确认（NULL 视为已确认）、已淘汰，或已打标签。
 
     rating 用 coalesce 兜底为 0，保证 NOT 取反时 SQL NULL 三值逻辑不把
     未评分照片错误排除。
@@ -770,11 +800,12 @@ def _processed_condition():
     cn_confirmed = (Photo.primary_bird_cn.is_(None)) | (Photo.primary_bird_cn != "待确认鸟种")
     sci_confirmed = (Photo.scientific_name.is_(None)) | (Photo.scientific_name != "Uncertain")
     rejected = func.coalesce(Photo.rating, 0) == -1
-    return ((Photo.is_selected == True) & cn_confirmed & sci_confirmed) | rejected
+    has_tags = Photo.tags.isnot(None) & (Photo.tags != [])
+    return ((Photo.is_selected == True) & cn_confirmed & sci_confirmed) | rejected | has_tags
 
 
 def _compute_select_progress(session, outing_id: int = 0, date: str = "") -> dict:
-    """选片进度：已处理 =（选中且鸟种已确认）或已淘汰。
+    """选片进度：已处理 =（选中且鸟种已确认）、已淘汰或已打标签。
 
     鸟种字段为 NULL（无鸟）视为已确认；outing_id=0 时回退到最近一次外拍，
     无外拍则统计全表；应用 date 筛选；不涉及 rating 等级筛选。
@@ -833,6 +864,24 @@ def _apply_rating_filter(query, rating: str):
     return query
 
 
+def _captured_at_dt(p) -> dt:
+    """Normalize Photo.captured_at to a datetime for stable sorting.
+
+    captured_at may be a datetime, an ISO-format string (stored as text in
+    SQLite despite the DateTime column), or None. Returns datetime.min as a
+    fallback so sort keys always have a consistent comparable type.
+    """
+    ca = p.captured_at
+    if ca is None:
+        return dt.min
+    if isinstance(ca, str):
+        try:
+            return dt.fromisoformat(ca.replace(" ", "T"))
+        except ValueError:
+            return dt.min
+    return ca
+
+
 @app.get("/select", response_class=HTMLResponse)
 def select_page(request: Request, date: str = "", outing_id: int = 0, rating: str = "", unprocessed: str = ""):
     """选片工作台：默认展示最近一次外拍的照片，按连拍分组优先展示。支持等级筛选与只看未处理。"""
@@ -843,7 +892,9 @@ def select_page(request: Request, date: str = "", outing_id: int = 0, rating: st
         if outing_id:
             current_outing = session.query(Outing).filter(Outing.id == outing_id).first()
         if not current_outing:
-            current_outing = session.query(Outing).order_by(Outing.created_at.desc()).first()
+            # 默认聚焦最近一次外拍：按文件夹名倒序取首条（名以 yyyyMMdd 开头，
+            # 等价于拍摄日期最新的一次外拍，而非导入时间最新）
+            current_outing = session.query(Outing).order_by(Outing.name.desc(), Outing.created_at.desc()).first()
 
         query = session.query(Photo)
         if current_outing:
@@ -854,7 +905,7 @@ def select_page(request: Request, date: str = "", outing_id: int = 0, rating: st
             query = query.filter(~_processed_condition())
         elif rating:
             query = _apply_rating_filter(query, rating)
-        photos = query.order_by(Photo.captured_date.desc(), Photo.id.desc()).limit(500).all()
+        photos = query.order_by(Photo.captured_at.asc(), Photo.id.asc()).limit(500).all()
 
         # Separate grouped and ungrouped photos
         grouped: dict[int, list[Photo]] = {}
@@ -869,12 +920,15 @@ def select_page(request: Request, date: str = "", outing_id: int = 0, rating: st
         display_groups = []
         gid = 1
 
-        # Render burst groups first, ordered by best photo (highest quality first)
-        group_ids = sorted(grouped.keys())
+        # Render burst groups first, ordered by earliest photo time (ascending)
+        group_ids = sorted(
+            grouped.keys(),
+            key=lambda gid: min((_captured_at_dt(p) for p in grouped[gid]), default=dt.min),
+        )
         for group_id in group_ids:
             group_photos = grouped[group_id]
             best = max(group_photos, key=lambda p: (p.quality_score or 0, p.id))
-            members = sorted(group_photos, key=lambda p: (p.captured_at or p.id, p.id))
+            members = sorted(group_photos, key=lambda p: (_captured_at_dt(p), p.id))
             display_groups.append({
                 "id": gid,
                 "type": "burst",
@@ -907,9 +961,9 @@ def select_page(request: Request, date: str = "", outing_id: int = 0, rating: st
             })
             gid += 1
 
-        # Render ungrouped photos by captured_date (one group per date)
-        for key in sorted(ungrouped.keys(), reverse=True):
-            group_photos = ungrouped[key]
+        # Render ungrouped photos by captured_date (one group per date), ascending
+        for key in sorted(ungrouped.keys()):
+            group_photos = sorted(ungrouped[key], key=lambda p: (_captured_at_dt(p), p.id))
             display_groups.append({
                 "id": gid,
                 "type": "single",
@@ -940,6 +994,23 @@ def select_page(request: Request, date: str = "", outing_id: int = 0, rating: st
             })
             gid += 1
 
+        # 查询所有外拍列表供下拉切换：按文件夹名倒序（名以 yyyyMMdd 开头，
+        # 等价于按拍摄日期倒序，兼容历史 start_date 被误存为导入日期的数据）
+        outings = (
+            session.query(
+                Outing.id,
+                Outing.name,
+                Outing.start_date,
+                Outing.end_date,
+                Outing.location_tag,
+                func.count(Photo.id).label("photo_count"),
+            )
+            .outerjoin(Photo, Photo.outing_id == Outing.id)
+            .group_by(Outing.id)
+            .order_by(Outing.name.desc(), Outing.created_at.desc())
+            .all()
+        )
+
         return templates.TemplateResponse(
             request, "select.html",
             {
@@ -950,6 +1021,17 @@ def select_page(request: Request, date: str = "", outing_id: int = 0, rating: st
                 "current_unprocessed": unprocessed,
                 "current_outing": current_outing,
                 "outing_id": current_outing.id if current_outing else 0,
+                "outings": [
+                    {
+                        "id": o.id,
+                        "name": o.name,
+                        "start_date": o.start_date,
+                        "end_date": o.end_date,
+                        "location_tag": o.location_tag,
+                        "photo_count": o.photo_count,
+                    }
+                    for o in outings
+                ],
                 "progress": _compute_select_progress(
                     session, current_outing.id if current_outing else 0, date
                 ),
@@ -1111,8 +1193,9 @@ def _resolve_original_path(photo: Photo) -> str:
 def get_photo_review(photo_id: int):
     """Return full review details for a photo: metadata, candidates, quality details.
 
-    Also returns the previous/next photo id within the same group (or same captured_date
-    if the photo is ungrouped) so the review UI can navigate with arrow keys.
+    Also returns the previous/next photo id across all photos in the same outing
+    (ordered by capture time) so the review UI can navigate with arrow keys across
+    burst groups.
     """
     session = get_sqlalchemy_session()
     try:
@@ -1195,7 +1278,7 @@ def get_photo_review(photo_id: int):
                 "bird_bbox": photo.bird_bbox,
                 "width": photo.width,
                 "height": photo.height,
-                "captured_at": photo.captured_at.isoformat() if photo.captured_at else None,
+                "captured_at": _captured_at_dt(photo).isoformat() if photo.captured_at else None,
                 "captured_date": photo.captured_date,
                 "location_tag": photo.location_tag,
                 "location_level1": photo.location_level1,
@@ -1207,6 +1290,8 @@ def get_photo_review(photo_id: int):
                 "is_selected": photo.is_selected,
                 "rating": photo.rating,
                 "group_id": photo.group_id,
+                "tags": _normalize_tags(photo.tags),
+                "note": photo.note or "",
             },
             "candidates": candidates,
             "quality_details": quality_details,
@@ -1223,22 +1308,79 @@ def get_photo_review(photo_id: int):
         session.close()
 
 
+@app.get("/api/tags")
+def list_all_tags():
+    """Return the distinct union of user tags across all photos."""
+    session = get_sqlalchemy_session()
+    try:
+        tags = set()
+        for (value,) in session.query(Photo.tags).filter(Photo.tags.isnot(None)).all():
+            tags.update(_normalize_tags(value))
+        return {"tags": sorted(tags)}
+    except Exception as e:
+        logger.error(f"Failed to list tags: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        session.close()
+
+
+@app.post("/api/photo/{photo_id}/tags")
+def save_photo_tags(photo_id: int, request: SaveTagsRequest):
+    """Replace the user tags of a photo (stripped, deduped, order preserved)."""
+    session = get_sqlalchemy_session()
+    try:
+        photo = session.query(Photo).filter(Photo.id == photo_id).first()
+        if not photo:
+            raise HTTPException(status_code=404, detail="Photo not found")
+        photo.tags = _normalize_tags(request.tags)
+        session.commit()
+        return {"status": "success", "photo_id": photo_id, "tags": photo.tags}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to save tags for photo {photo_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        session.close()
+
+
+@app.post("/api/photo/{photo_id}/note")
+def save_photo_note(photo_id: int, request: SaveNoteRequest):
+    """Replace the free-text note of a photo (empty string clears it)."""
+    session = get_sqlalchemy_session()
+    try:
+        photo = session.query(Photo).filter(Photo.id == photo_id).first()
+        if not photo:
+            raise HTTPException(status_code=404, detail="Photo not found")
+        photo.note = request.note.strip()
+        session.commit()
+        return {"status": "success", "photo_id": photo_id, "note": photo.note}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to save note for photo {photo_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        session.close()
+
+
 def _get_review_neighbors(session, photo: Photo) -> tuple[Optional[int], Optional[int]]:
-    """Return previous/next photo id within the same group or same captured_date."""
-    if photo.group_id:
-        siblings = (
-            session.query(Photo.id)
-            .filter(Photo.group_id == photo.group_id)
-            .order_by(Photo.captured_at.asc(), Photo.id.asc())
-            .all()
-        )
+    """Return previous/next photo id across all photos in the same outing, ordered by capture time.
+
+    Navigation spans burst groups: at the last photo of a group, → moves to the
+    first photo of the next group (by capture time), allowing the reviewer to walk
+    through every photo of the outing in order.
+    """
+    query = session.query(Photo.id)
+    if photo.outing_id:
+        query = query.filter(Photo.outing_id == photo.outing_id)
     else:
-        siblings = (
-            session.query(Photo.id)
-            .filter(Photo.captured_date == photo.captured_date)
-            .order_by(Photo.captured_at.asc(), Photo.id.asc())
-            .all()
-        )
+        query = query.filter(Photo.captured_date == photo.captured_date)
+    siblings = (
+        query
+        .order_by(Photo.captured_at.asc(), Photo.id.asc())
+        .all()
+    )
     ids = [row[0] for row in siblings]
     if not ids:
         return None, None
@@ -1520,13 +1662,7 @@ async def import_parse_location(data: dict):
 async def import_browse_folder():
     """弹出系统文件夹选择对话框，返回选中的文件夹路径。"""
     try:
-        import tkinter
-        from tkinter import filedialog
-        root = tkinter.Tk()
-        root.withdraw()
-        root.attributes('-topmost', True)
-        folder = filedialog.askdirectory(title="选择照片源目录")
-        root.destroy()
+        folder = await asyncio.to_thread(open_folder_dialog, "选择照片源目录")
         if folder:
             return {"status": "success", "folder": folder}
         else:
@@ -1572,6 +1708,7 @@ def gallery_page(
     date_to: str = "",
     species: List[str] = Query(default=[]),
     families: List[str] = Query(default=[]),
+    orders: List[str] = Query(default=[]),
     locations: List[str] = Query(default=[]),  # 兼容旧参数
     location_level1: List[str] = Query(default=[]),
     location_level2: List[str] = Query(default=[]),
@@ -1579,6 +1716,7 @@ def gallery_page(
     outing_id: int = 0,
     limit: int = 50,
     offset: int = 0,
+    partial: str = "",
 ):
     """图库浏览：按时间/地点/鸟种/视图筛选。"""
 
@@ -1607,9 +1745,17 @@ def gallery_page(
         if outing_id:
             current_outing = session.query(Outing).filter(Outing.id == outing_id).first()
 
-        # Build base query, optionally joining Species for family filtering
-        if families:
-            query = session.query(Photo).join(Species, Photo.scientific_name == Species.scientific_name, isouter=True)
+        # Species/family/order filter values
+        selected_species = [s.strip() for s in _list_param(species) if s.strip()]
+        selected_families = [f.strip() for f in _list_param(families) if f.strip()]
+        selected_orders = [o.strip() for o in _list_param(orders) if o.strip()]
+
+        # Build base query, joining Taxonomy when family/order filtering is needed
+        needs_taxonomy_join = bool(selected_families or selected_orders)
+        if needs_taxonomy_join:
+            query = session.query(Photo).join(
+                Taxonomy, Photo.scientific_name == Taxonomy.scientific_name
+            )
         else:
             query = session.query(Photo)
 
@@ -1641,7 +1787,6 @@ def gallery_page(
                 query = query.filter(Photo.captured_date <= date_to)
 
         # Species filter (multi-select)
-        selected_species = [s.strip() for s in _list_param(species) if s.strip()]
         if selected_species:
             query = query.filter(
                 Photo.primary_bird_cn.in_(selected_species) |
@@ -1649,9 +1794,12 @@ def gallery_page(
             )
 
         # Family filter (multi-select, requires join)
-        selected_families = [f.strip() for f in _list_param(families) if f.strip()]
         if selected_families:
-            query = query.filter(Species.family_cn.in_(selected_families))
+            query = query.filter(Taxonomy.family_cn.in_(selected_families))
+
+        # Order filter (multi-select, requires join)
+        if selected_orders:
+            query = query.filter(Taxonomy.order_cn.in_(selected_orders))
 
         # Location filter (cascade: province / city / site)
         selected_level1 = [loc.strip() for loc in _list_param(location_level1) if loc.strip()]
@@ -1701,20 +1849,6 @@ def gallery_page(
 
         # Sidebar options
         available_dates = [d[0] for d in session.query(Photo.captured_date).distinct().order_by(Photo.captured_date.desc()).all() if d[0]]
-        available_species = [
-            {"cn": cn, "sci": sci, "count": count}
-            for cn, sci, count in session.query(
-                Photo.primary_bird_cn, Photo.scientific_name, func.count(Photo.id)
-            ).group_by(Photo.primary_bird_cn, Photo.scientific_name).order_by(func.count(Photo.id).desc()).all()
-            if cn or sci
-        ]
-        available_families = [
-            {"family_cn": family_cn, "count": count}
-            for family_cn, count in session.query(
-                Species.family_cn, func.count(Species.id)
-            ).filter(Species.photo_count > 0).group_by(Species.family_cn).order_by(func.count(Species.id).desc()).all()
-            if family_cn
-        ]
         available_locations = [
             {"level1": l1, "level2": l2, "level3": l3, "count": count}
             for l1, l2, l3, count in session.query(
@@ -1741,6 +1875,14 @@ def gallery_page(
             ).filter(Photo.location_level3.isnot(None)).group_by(Photo.location_level3).order_by(func.count(Photo.id).desc()).all()
         ]
 
+        # Taxonomy tree for the left sidebar (only taxa with photos)
+        try:
+            taxonomy_tree = taxonomy_service.get_taxonomy_tree(
+                create_db_manager, include_empty=False, outing_id=outing_id or 0
+            )
+        except Exception:
+            taxonomy_tree = []
+
         has_next = (offset + limit) < total_count
         has_prev = offset > 0
 
@@ -1755,6 +1897,8 @@ def gallery_page(
             filter_params.setdefault("species", []).append(value)
         for value in selected_families:
             filter_params.setdefault("families", []).append(value)
+        for value in selected_orders:
+            filter_params.setdefault("orders", []).append(value)
         for value in selected_level1:
             filter_params.setdefault("location_level1", []).append(value)
         for value in selected_level2:
@@ -1770,41 +1914,48 @@ def gallery_page(
         filter_params = {k: v for k, v in filter_params.items() if v}
         base_query = urlencode(filter_params, doseq=True)
 
-        return templates.TemplateResponse(
-            request, "gallery.html",
-            {
-                "request": request,
-                "photos": display_photos,
-                "query": q,
-                "current_view": effective_view,
-                "current_date": date,
-                "date_from": date_from,
-                "date_to": date_to,
-                "selected_species": selected_species,
-                "selected_families": selected_families,
-                "selected_level1": selected_level1,
-                "selected_level2": selected_level2,
-                "selected_level3": selected_level3,
-                "selected_locations": legacy_locations,
-                "limit": limit,
-                "offset": offset,
-                "total_count": total_count,
-                "available_dates": available_dates,
-                "available_species": available_species,
-                "available_families": available_families,
-                "available_locations": available_locations,
-                "available_level1": available_level1,
-                "available_level2": available_level2,
-                "available_level3": available_level3,
-                "base_query": base_query,
-                "has_next": has_next,
-                "has_prev": has_prev,
-                "next_offset": offset + limit,
-                "prev_offset": max(0, offset - limit),
-                "outing_id": outing_id,
-                "current_outing": current_outing,
-            },
-        )
+        # Non-taxonomy base query: preserves all filters except orders/families/species/offset
+        # Used by the left sidebar tree links so clicking a taxon replaces the taxonomy filter.
+        non_tax_params = {k: v for k, v in filter_params.items()
+                          if k not in ("orders", "families", "species", "offset")}
+        non_tax_query = urlencode(non_tax_params, doseq=True)
+
+        context = {
+            "request": request,
+            "photos": display_photos,
+            "query": q,
+            "current_view": effective_view,
+            "current_date": date,
+            "date_from": date_from,
+            "date_to": date_to,
+            "selected_species": selected_species,
+            "selected_families": selected_families,
+            "selected_orders": selected_orders,
+            "selected_level1": selected_level1,
+            "selected_level2": selected_level2,
+            "selected_level3": selected_level3,
+            "selected_locations": legacy_locations,
+            "limit": limit,
+            "offset": offset,
+            "total_count": total_count,
+            "available_dates": available_dates,
+            "available_locations": available_locations,
+            "available_level1": available_level1,
+            "available_level2": available_level2,
+            "available_level3": available_level3,
+            "taxonomy_tree": taxonomy_tree,
+            "non_tax_query": non_tax_query,
+            "base_query": base_query,
+            "has_next": has_next,
+            "has_prev": has_prev,
+            "next_offset": offset + limit,
+            "prev_offset": max(0, offset - limit),
+            "outing_id": outing_id,
+            "current_outing": current_outing,
+        }
+
+        template_name = "_gallery_content.html" if partial == "1" else "gallery.html"
+        return templates.TemplateResponse(request, template_name, context)
     finally:
         session.close()
 
@@ -1959,15 +2110,37 @@ def guide_page(request: Request, q: str = ""):
         current_outing = session.query(Outing).order_by(Outing.created_at.desc()).first()
         current_outing_id = current_outing.id if current_outing else None
 
-        species_query = session.query(Species).filter(Species.photo_count > 0)
+        # Query species with photos: join Taxonomy with Photo to count per species
+        species_query = session.query(
+            Taxonomy.scientific_name,
+            Taxonomy.chinese_name,
+            Taxonomy.family_cn,
+            Taxonomy.family_sci,
+            func.count(Photo.id).label("photo_count"),
+        ).join(
+            Photo, Taxonomy.scientific_name == Photo.scientific_name
+        ).group_by(
+            Taxonomy.scientific_name, Taxonomy.chinese_name, Taxonomy.family_cn, Taxonomy.family_sci
+        )
         if q:
+            like = f"%{q}%"
             species_query = species_query.filter(
-                (Species.chinese_name.like(f"%{q}%")) |
-                (Species.scientific_name.like(f"%{q}%")) |
-                (Species.family_cn.like(f"%{q}%")) |
-                (Species.family_sci.like(f"%{q}%"))
+                (Taxonomy.chinese_name.like(like)) |
+                (Taxonomy.scientific_name.like(like)) |
+                (Taxonomy.family_cn.like(like)) |
+                (Taxonomy.family_sci.like(like))
             )
-        species_list = species_query.order_by(Species.family_cn, Species.chinese_name).all()
+        species_rows = species_query.order_by(Taxonomy.family_cn, Taxonomy.chinese_name).all()
+        species_list = [
+            {
+                "scientific_name": r.scientific_name,
+                "chinese_name": r.chinese_name,
+                "family_cn": r.family_cn,
+                "family_sci": r.family_sci,
+                "photo_count": r.photo_count,
+            }
+            for r in species_rows
+        ]
 
         # A species is considered "new" in the current outing if it has photos
         # associated with that outing and no photos from earlier outings.
@@ -1992,15 +2165,15 @@ def guide_page(request: Request, q: str = ""):
         # Group by family
         families_map = {}
         for sp in species_list:
-            key = sp.family_cn or "未分类"
+            key = sp["family_cn"] or "未分类"
             families_map.setdefault(key, {
                 "family_cn": key,
-                "family_sci": sp.family_sci or "",
+                "family_sci": sp["family_sci"] or "",
                 "species": [],
             })
             # Find best thumbnail: highest quality_score or latest photo
             photo = session.query(Photo).filter(
-                Photo.scientific_name == sp.scientific_name
+                Photo.scientific_name == sp["scientific_name"]
             ).order_by(Photo.quality_score.desc(), Photo.captured_date.desc()).first()
             thumb = None
             first_date = ""
@@ -2010,13 +2183,13 @@ def guide_page(request: Request, q: str = ""):
                 first_date = photo.captured_date or ""
                 last_date = photo.captured_date or ""
             families_map[key]["species"].append({
-                "scientific_name": sp.scientific_name,
-                "chinese_name": sp.chinese_name,
-                "photo_count": sp.photo_count or 0,
+                "scientific_name": sp["scientific_name"],
+                "chinese_name": sp["chinese_name"],
+                "photo_count": sp["photo_count"] or 0,
                 "thumbnail_url": thumb,
                 "first_date": first_date,
                 "last_date": last_date,
-                "is_new": sp.scientific_name in new_species,
+                "is_new": sp["scientific_name"] in new_species,
             })
 
         families = sorted(families_map.values(), key=lambda x: x["family_cn"])

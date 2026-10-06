@@ -131,3 +131,52 @@ def test_start_import_passes_location_info(service, tmp_path):
     assert service.task_manager.started_args["location_info"] == location_info
 
 
+def test_create_outing_parses_start_date_from_folder_name(service, tmp_path):
+    """_create_outing 应从文件夹名解析拍摄日期作为 start_date，而非使用导入当天日期。"""
+    folder = tmp_path / "20260102_北京_玉渊潭公园"
+    folder.mkdir(parents=True, exist_ok=True)
+
+    outing_id = service._create_outing(folder)
+
+    from src.db.models import Outing
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+
+    engine = create_engine(f"sqlite:///{service.config['paths']['db_path']}")
+    Session = sessionmaker(bind=engine)
+    session = Session()
+    try:
+        outing = session.query(Outing).filter(Outing.id == outing_id).first()
+        assert outing is not None
+        assert outing.name == "20260102_北京_玉渊潭公园"
+        # start_date 应来自文件夹名前缀，而非当天日期
+        assert outing.start_date == "20260102"
+    finally:
+        session.close()
+        engine.dispose()
+
+
+def test_create_outing_falls_back_to_today_when_folder_has_no_date(service, tmp_path):
+    """文件夹名不含可解析日期时，start_date 回退为当天日期。"""
+    folder = tmp_path / "随便一个文件夹"
+    folder.mkdir(parents=True, exist_ok=True)
+
+    outing_id = service._create_outing(folder)
+
+    from src.db.models import Outing
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from datetime import datetime
+
+    engine = create_engine(f"sqlite:///{service.config['paths']['db_path']}")
+    Session = sessionmaker(bind=engine)
+    session = Session()
+    try:
+        outing = session.query(Outing).filter(Outing.id == outing_id).first()
+        assert outing is not None
+        assert outing.start_date == datetime.now().strftime("%Y%m%d")
+    finally:
+        session.close()
+        engine.dispose()
+
+

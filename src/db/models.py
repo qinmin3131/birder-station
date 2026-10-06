@@ -28,6 +28,8 @@ def init_database(engine):
             ("location_level2", "TEXT"),
             ("location_level3", "TEXT"),
             ("outing_id", "INTEGER"),
+            ("tags", "TEXT"),
+            ("note", "TEXT"),
             ("created_at", "DATETIME DEFAULT CURRENT_TIMESTAMP"),
         ]
         for col_name, col_type in missing_columns:
@@ -38,6 +40,25 @@ def init_database(engine):
                     )
 
     Base.metadata.create_all(engine)
+
+    # Create missing indexes on existing tables (idempotent).
+    # SQLAlchemy's create_all does not add indexes to pre-existing tables.
+    index_statements = [
+        "CREATE INDEX IF NOT EXISTS ix_photos_primary_bird_cn ON photos(primary_bird_cn)",
+        "CREATE INDEX IF NOT EXISTS ix_photos_scientific_name ON photos(scientific_name)",
+        "CREATE INDEX IF NOT EXISTS ix_photos_location_level1 ON photos(location_level1)",
+        "CREATE INDEX IF NOT EXISTS ix_photos_location_level2 ON photos(location_level2)",
+        "CREATE INDEX IF NOT EXISTS ix_photos_location_level3 ON photos(location_level3)",
+        "CREATE INDEX IF NOT EXISTS ix_photos_is_selected ON photos(is_selected)",
+        "CREATE INDEX IF NOT EXISTS ix_photos_outing_id ON photos(outing_id)",
+        "CREATE INDEX IF NOT EXISTS ix_photos_group_id ON photos(group_id)",
+        "CREATE INDEX IF NOT EXISTS ix_taxonomy_family_cn ON taxonomy(family_cn)",
+        "CREATE INDEX IF NOT EXISTS ix_taxonomy_order_cn ON taxonomy(order_cn)",
+        "CREATE INDEX IF NOT EXISTS ix_taxonomy_chinese_name ON taxonomy(chinese_name)",
+    ]
+    with engine.begin() as conn:
+        for stmt in index_statements:
+            conn.execute(text(stmt))
 
 
 class Species(Base):
@@ -55,6 +76,21 @@ class Species(Base):
     photo_count = Column(Integer, default=0)
 
 
+class Taxonomy(Base):
+    """IOC taxonomy reference table (read-only, pre-populated)."""
+    __tablename__ = "taxonomy"
+    id = Column(Integer, primary_key=True)
+    scientific_name = Column(String, unique=True, nullable=False)
+    chinese_name = Column(String, index=True)
+    english_name = Column(String)
+    family_cn = Column(String, index=True)
+    family_sci = Column(String)
+    order_cn = Column(String, index=True)
+    order_sci = Column(String)
+    genus_cn = Column(String)
+    genus_sci = Column(String)
+
+
 class Photo(Base):
     __tablename__ = "photos"
     id = Column(Integer, primary_key=True)
@@ -65,25 +101,27 @@ class Photo(Base):
     captured_at = Column(DateTime)
     captured_date = Column(String)
     location_tag = Column(String)
-    location_level1 = Column(String)  # 省/直辖市
-    location_level2 = Column(String)  # 市/区
-    location_level3 = Column(String)  # 公园/具体地点
+    location_level1 = Column(String, index=True)  # 省/直辖市
+    location_level2 = Column(String, index=True)  # 市/区
+    location_level3 = Column(String, index=True)  # 公园/具体地点
     latitude = Column(Float)
     longitude = Column(Float)
-    primary_bird_cn = Column(String)
-    scientific_name = Column(String)
+    primary_bird_cn = Column(String, index=True)
+    scientific_name = Column(String, index=True)
     confidence_score = Column(Float)
     candidates_json = Column(JSON)
     width = Column(Integer)
     height = Column(Integer)
-    is_selected = Column(Boolean, default=False)
+    is_selected = Column(Boolean, default=False, index=True)
     rating = Column(Integer)
     quality_score = Column(Integer)
     quality_details = Column(JSON)
     bird_bbox = Column(JSON)
     created_at = Column(DateTime, default=datetime.utcnow)
-    outing_id = Column(Integer, ForeignKey("outings.id"))
-    group_id = Column(Integer, ForeignKey("photo_groups.id"))
+    tags = Column(JSON)
+    note = Column(Text)
+    outing_id = Column(Integer, ForeignKey("outings.id"), index=True)
+    group_id = Column(Integer, ForeignKey("photo_groups.id"), index=True)
 
 
 class PhotoGroup(Base):

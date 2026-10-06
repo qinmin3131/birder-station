@@ -22,18 +22,91 @@ def test_create_local_recognizer_passes_hf_mirror(monkeypatch):
         StubLocalRecognizer,
     )
 
-    recognizer = RecognizerFactory.create(
-        RecognitionPlatform.local.value,
-        model_name="bioclip",
-        device="cpu",
+    # 清空单例缓存，避免被其他测试污染
+    saved = RecognizerFactory._local_recognizer
+    RecognizerFactory._local_recognizer = None
+    try:
+        recognizer = RecognizerFactory.create(
+            RecognitionPlatform.local.value,
+            model_name="bioclip",
+            device="cpu",
+        )
+
+        assert isinstance(recognizer, StubLocalRecognizer)
+        assert created == {
+            "model_name": "bioclip",
+            "device": "cpu",
+            "hf_mirror": "https://mirror.example",
+        }
+    finally:
+        RecognizerFactory._local_recognizer = saved
+
+
+def test_create_local_recognizer_caches_singleton_when_no_kwargs(monkeypatch):
+    """无 kwargs 调用 create('local') 应复用进程级单例，避免每次请求都重建模型。"""
+    created_count = {"n": 0}
+
+    class StubLocalRecognizer:
+        def __init__(self, **kwargs):
+            created_count["n"] += 1
+            self.kwargs = kwargs
+
+    monkeypatch.setattr(
+        "src.recognition.cloud.factory.get_config",
+        lambda: {"recognition": {"hf_mirror": "https://mirror.example"}},
+    )
+    monkeypatch.setattr(
+        "src.recognition.inference_local.LocalBirdRecognizer",
+        StubLocalRecognizer,
     )
 
-    assert isinstance(recognizer, StubLocalRecognizer)
-    assert created == {
-        "model_name": "bioclip",
-        "device": "cpu",
-        "hf_mirror": "https://mirror.example",
-    }
+    saved = RecognizerFactory._local_recognizer
+    RecognizerFactory._local_recognizer = None
+    try:
+        first = RecognizerFactory.create(RecognitionPlatform.local.value)
+        second = RecognizerFactory.create(RecognitionPlatform.local.value)
+
+        # 两次调用应返回同一实例，构造器只被调用一次
+        assert first is second
+        assert created_count["n"] == 1
+        assert first.kwargs == {"hf_mirror": "https://mirror.example"}
+    finally:
+        RecognizerFactory._local_recognizer = saved
+
+
+def test_create_local_recognizer_bypasses_cache_when_kwargs_passed(monkeypatch):
+    """显式传 kwargs 时应绕过单例缓存，每次新建以尊重调用方参数。"""
+    created_count = {"n": 0}
+
+    class StubLocalRecognizer:
+        def __init__(self, **kwargs):
+            created_count["n"] += 1
+            self.kwargs = kwargs
+
+    monkeypatch.setattr(
+        "src.recognition.cloud.factory.get_config",
+        lambda: {"recognition": {"hf_mirror": "https://mirror.example"}},
+    )
+    monkeypatch.setattr(
+        "src.recognition.inference_local.LocalBirdRecognizer",
+        StubLocalRecognizer,
+    )
+
+    saved = RecognizerFactory._local_recognizer
+    RecognizerFactory._local_recognizer = None
+    try:
+        first = RecognizerFactory.create(
+            RecognitionPlatform.local.value, model_name="bioclip", device="cpu"
+        )
+        second = RecognizerFactory.create(
+            RecognitionPlatform.local.value, model_name="bioclip-2", device="cuda"
+        )
+
+        # 两次都是新实例，构造器被调用两次
+        assert first is not second
+        assert created_count["n"] == 2
+    finally:
+        RecognizerFactory._local_recognizer = saved
 
 
 def test_create_unknown_platform_raises_value_error():

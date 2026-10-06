@@ -165,7 +165,7 @@ class TaskManager:
                 indexer = PhotoIndexer(PhotoRepository(session), supported_formats=set(supported_formats) if supported_formats else None)
                 result = indexer.index_folder_with_stats(Path(folder_path), recursive=recursive, overwrite=overwrite, location_info=location_info, outing_id=outing_id)
                 self.logs.append(
-                    f"索引完成：新增 {result['indexed']} 张，跳过重复 {result['skipped']} 张，失败 {result['errors']} 张，覆盖 {result.get('overwritten', 0)} 张"
+                    f"索引完成：新增 {result['indexed']} 张，跳过重复 {result['skipped']} 张，失败 {result['errors']} 张，覆盖 {result.get('overwritten', 0)} 张，待识别 {len(result['photo_ids'])} 张（含未处理 {result.get('reprocessed', 0)} 张）"
                 )
             finally:
                 session.close()

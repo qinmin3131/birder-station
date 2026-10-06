@@ -161,6 +161,59 @@ def validate_config_path(path: str, path_type: str = "directory"):
         return {"error": str(exc)}
 
 
+def _ps_folder_dialog(title: str, initial_dir: str = "") -> str:
+    """Windows 回退方案：用 PowerShell 的 FolderBrowserDialog 选文件夹。"""
+    ps_script = (
+        "Add-Type -AssemblyName System.Windows.Forms; "
+        "$d = New-Object System.Windows.Forms.FolderBrowserDialog; "
+        f"$d.Description = {_ps_quote(title)}; "
+    )
+    if initial_dir and os.path.isdir(initial_dir):
+        ps_script += f"$d.SelectedPath = {_ps_quote(initial_dir)}; "
+    ps_script += "if ($d.ShowDialog() -eq 'OK') { $d.SelectedPath }"
+    try:
+        out = subprocess.run(
+            ["powershell", "-NoProfile", "-Command", ps_script],
+            capture_output=True, text=True, timeout=120,
+        )
+        path = out.stdout.strip()
+        return path if path else ""
+    except Exception as exc:
+        raise Exception(f"PowerShell 文件夹对话框失败: {exc}")
+
+
+def _ps_file_dialog(title: str, initial_file: str = "", file_types: str = "") -> str:
+    """Windows 回退方案：用 PowerShell 的 OpenFileDialog 选文件。"""
+    filter_str = "All Files (*.*)|*.*"
+    if file_types:
+        parts = [f"{ft} (*.{ft})|*.{ft}" for ft in file_types.split("|") if ft]
+        if parts:
+            filter_str = "|".join(parts)
+    ps_script = (
+        "Add-Type -AssemblyName System.Windows.Forms; "
+        "$d = New-Object System.Windows.Forms.OpenFileDialog; "
+        f"$d.Title = {_ps_quote(title)}; "
+        f"$d.Filter = {_ps_quote(filter_str)}; "
+    )
+    if initial_file:
+        ps_script += f"$d.FileName = {_ps_quote(initial_file)}; "
+    ps_script += "if ($d.ShowDialog() -eq 'OK') { $d.FileName }"
+    try:
+        out = subprocess.run(
+            ["powershell", "-NoProfile", "-Command", ps_script],
+            capture_output=True, text=True, timeout=120,
+        )
+        path = out.stdout.strip()
+        return path if path else ""
+    except Exception as exc:
+        raise Exception(f"PowerShell 文件对话框失败: {exc}")
+
+
+def _ps_quote(s: str) -> str:
+    """将字符串安全地嵌入 PowerShell 单引号字符串。"""
+    return "'" + str(s).replace("'", "''") + "'"
+
+
 def open_folder_dialog(title: str, initial_dir: str = "") -> str:
     result = {"path": None, "error": None}
 
@@ -175,8 +228,15 @@ def open_folder_dialog(title: str, initial_dir: str = "") -> str:
             folder = filedialog.askdirectory(title=title, initialdir=initial_dir or None)
             root.destroy()
             result["path"] = folder
-        except Exception as exc:
-            result["error"] = str(exc)
+        except Exception:
+            # tkinter 不可用时（如精简版 Python），回退到 PowerShell 对话框
+            if sys.platform.startswith("win"):
+                try:
+                    result["path"] = _ps_folder_dialog(title, initial_dir)
+                except Exception as exc:
+                    result["error"] = str(exc)
+            else:
+                result["error"] = "tkinter 不可用，请手动输入路径"
 
     thread = threading.Thread(target=_run_dialog)
     thread.start()
@@ -212,8 +272,14 @@ def open_file_dialog(title: str, initial_file: str = "", file_types: str = "") -
             )
             root.destroy()
             result["path"] = file
-        except Exception as exc:
-            result["error"] = str(exc)
+        except Exception:
+            if sys.platform.startswith("win"):
+                try:
+                    result["path"] = _ps_file_dialog(title, initial_file, file_types)
+                except Exception as exc:
+                    result["error"] = str(exc)
+            else:
+                result["error"] = "tkinter 不可用，请手动输入路径"
 
     thread = threading.Thread(target=_run_dialog)
     thread.start()

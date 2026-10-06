@@ -1,7 +1,6 @@
 import re
 import os
 from pathlib import Path
-from datetime import datetime
 from typing import Dict, Optional, Tuple
 
 class PathParser:
@@ -71,7 +70,7 @@ class PathParser:
             rel_path = abs_path
 
         result = {
-            'captured_date': datetime.now().strftime("%Y%m%d"),
+            'captured_date': None,
             'location_tag': 'Unknown',
             'source_structure': str(rel_path.parent).replace('\\', '/'),
             'location_level1': None,

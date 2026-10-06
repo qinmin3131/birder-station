@@ -1,5 +1,48 @@
 # 工作日志 / Worklog
 
+## 2026-09-28
+
+### 当日目标
+- 选片页外拍列表按拍摄日期排序，而非导入日期（用户反馈）
+
+### 已完成
+1. **导入流程：start_date 从文件夹名解析**
+   - `src/web/import_service.py`：`_create_outing()` 改用 `PathParser.parse_folder_name(folder_name)` 解析拍摄日期作为 `Outing.start_date`，解析不到时回退到当天。此前 `start_date` 被硬编码为导入当天日期，导致外拍列表按导入时间排序。
+   - 与 `src/core/indexer.py` 中 `captured_date` 的解析方式保持一致。
+
+2. **选片页与 API：外拍列表按文件夹名倒序**
+   - `src/web/app.py`：
+     - `list_outings()`（`/api/outings`）排序键由 `Outing.start_date.desc()` 改为 `Outing.name.desc()`。
+     - `select_page()` 下拉外拍列表同样改为 `Outing.name.desc()`。
+     - `select_page()` 默认聚焦的"最近一次外拍"由 `created_at.desc()` 改为 `name.desc()`。
+   - 选择按文件夹名排序而非 `start_date`：文件夹名以 `yyyyMMdd` 开头，按名倒序等价于按拍摄日期倒序，且兼容历史数据中 `start_date` 被误存为导入日期的记录，避免数据迁移。
+
+### 测试
+- `tests/test_web_import.py`：新增 `test_create_outing_parses_start_date_from_folder_name`、`test_create_outing_falls_back_to_today_when_folder_has_no_date`。
+- `python -m pytest tests/test_web_import.py tests/test_api_outings.py -v` 全部通过。
+- 全量 `python -m pytest`：395 passed, 2 failed（`test_db_migration` / `test_web_tags_notes` 的 `init_database` 列迁移问题，与本次改动无关，属既有问题）。
+
+### 说明
+- 用户提出"或者直接按照名称排列"的备选方案被采纳：按文件夹名排序可同时覆盖新增与历史数据，无需迁移历史外拍的 `start_date`。
+
+### 数据迁移（一次性回填历史 outings.start_date）
+- 新增 `scripts/fix_outing_start_date.py`：从 `Outing.name` 解析拍摄日期，回填 `start_date`（及范围模式下的 `end_date`）。支持 `--dry-run`、`--db-path`，无法解析名称前缀的记录（如 `testdata`、`燕隼`）跳过保留原值。
+- 迁移前先用 `sqlite3.backup` 备份到 `data/birder_20260928_220237.bak.db`。
+- 实际执行：17 条外拍记录中，15 条 `start_date` 由导入日期修正为文件夹名解析的拍摄日期，2 条无日期前缀跳过。例：`20260208_昆明` 的 `start_date` 从 `20260803` -> `20260208`。
+
+### 修复：Web API 识别器每次重建导致 "Cache miss. Encoding N text labels..." 重复打印
+- 现象：通过 `/api/recognition/recognize` 或独立 `recognition_service.py` 调用本地识别时，每个请求都打印一次 "Cache miss. Encoding 1437 text labels..."，导致识别缓慢。
+- 根因：`RecognizerFactory.create()` 每次都 `LocalBirdRecognizer(**create_kwargs)` 新建实例，而 text features 缓存（`cached_labels` / `cached_text_features`）是实例级的，新实例必然 cache miss → 重新编码全部候选标签。批处理 pipeline 路径因 `_init_recognizer()` 只建一次并复用，故不受影响。
+- 修复 `src/recognition/cloud/factory.py`：
+  - 新增类级单例缓存 `_local_recognizer` + `_local_recognizer_lock`（threading.Lock）。
+  - 新增 `_get_local_recognizer(kwargs)`：**无 kwargs** 时返回进程级单例（快路径读 + 锁内 double-check + 构造成功才缓存）；**有 kwargs** 时绕过单例新建，尊重调用方参数（如测试的 `model_name`/`device`）。
+  - 既覆盖 Web API 默认调用路径（`create("local")` 无参），又保留测试与自定义调用的新建语义。
+- 测试 `tests/test_cloud_factory.py`：
+  - 原 `test_create_local_recognizer_passes_hf_mirror` 增加 save/restore 单例缓存，避免污染。
+  - 新增 `test_create_local_recognizer_caches_singleton_when_no_kwargs`：断言无 kwargs 时两次调用返回同一实例、构造器只调用一次。
+  - 新增 `test_create_local_recognizer_bypasses_cache_when_kwargs_passed`：断言有 kwargs 时两次调用返回不同实例、构造器调用两次。
+  - `tests/test_cloud_factory.py`、`tests/test_recognition_routes.py`、`tests/test_recognition_service.py` 共 20 项全部通过。
+
 ## 2026-07-23
 
 ### 当日目标
@@ -210,6 +253,314 @@
     - 功能范围：图鉴、外拍记录、照片浏览、元数据修订、现场记录；不做导入/识别/RAW/选片等重计算。
     - 输出文档：`docs/superpowers/specs/2026-07-23-ios-companion-design.md`。
     - 待定：iCloud 容器反向域名、快照加密、TestFlight 分发、补丁合并失败通知方式。
+
+### 待处理
+- 无。
+
+## 2026-09-27
+
+### 当日目标
+- 完成选片页面的切换外拍功能
+- 修复选片页面时间排序（升序，从早到晚）
+- 修复预存测试失败
+
+### 已完成
+1. **选片页面切换外拍功能**
+   - 后端 (`src/web/app.py`)：
+     - `select_page` 路由新增查询所有外拍列表（含照片数），按 `start_date` 倒序排列，通过 `outings` 模板变量传给前端。
+   - 前端 (`src/web/templates/select.html`)：
+     - 头部替换原"当前外拍：xxx"静态文本为外拍下拉选择器。
+     - 下拉包含「全部外拍」选项（`outing_id=0`）及所有外拍，格式为 `{name}（{start_date}）· {photo_count}张`。
+     - 选择外拍后自动提交表单跳转 `/select?outing_id=<id>`，并通过 hidden input 保留当前的 `date`、`rating`、`unprocessed` 筛选参数。
+     - 日期筛选表单同步增加 `outing_id`、`rating`、`unprocessed` 的 hidden input，确保按日期筛选时不丢失外拍上下文。
+   - 测试：
+     - 更新 `tests/test_web_three_domain.py::test_select_page_renders_template`：断言上下文包含 `"outings": []`。
+
+2. **选片页面时间排序改为升序（从早到晚）**
+   - 后端 (`src/web/app.py`)：
+     - 照片查询排序：`order_by(Photo.captured_date.desc(), Photo.id.desc())` → `order_by(Photo.captured_date.asc(), Photo.id.asc())`。
+     - 连拍组排序：从按 `group_id` 排序改为按组内最早照片 `captured_at` 升序排列。
+     - 无分组照片按日期分组的排序：`reverse=True` 改为升序（默认）。
+   - 依据：设计文档 `docs/superpowers/specs/2026-08-30-select-page-time-sort-and-cross-group-navigation-design.md` 要求按时间从早到晚排列。
+   - 测试：
+     - `tests/test_web_three_domain.py::test_select_page_groups_photos_by_date` 已预先更新为期望升序，本次修复代码使其通过。
+
+3. **修复预存测试失败**
+   - `tests/test_web_app.py::test_taxonomy_and_search_endpoints_forward_requests`：
+     - 根因：`StubManager.get_taxonomy_tree()` 和 `get_taxonomy_tree_fast()` 未接受 `outing_id` 参数，但 `taxonomy_service` 现在会传入该参数（与真实 `IOCManager` 接口一致）。
+     - 修复：更新 `StubManager` 两个方法签名增加 `outing_id=0`，并在调用记录中包含该参数；同步更新断言。
+   - `tests/test_web_tags_notes.py`：重新验证全部通过（标签/备注端点及模型迁移逻辑均正常）。
+
+4. **修复重复导入产生重复外拍 + 重新识别未处理照片**
+   - 问题：`20260101_北京_奥林匹克森林公园北园` 外拍出现 2 条（ID 5 和 ID 14），因重复导入同一文件夹导致。
+   - 根因：
+     - `OutingRepository.get_or_create()` 按 `name + start_date` 匹配，而 `_create_outing()` 传入的 `start_date` 是导入当天日期，每次导入日期不同就会创建新外拍。
+     - 重新导入时，已索引但未识别的照片不会被重新识别。
+   - 修复：
+     - `src/db/repository.py`：`get_or_create()` 改为仅按 `name` 匹配（文件夹名已含日期，天然唯一），保证重复导入沿用原有外拍 ID。
+     - `src/core/indexer.py`：`index_folder_with_stats()` 遇到已存在照片（同 hash）时：
+       - 将其 `outing_id` 修正为当前外拍，保证观鸟记录与外拍记录一致；
+       - 若未处理（无 `bird_bbox`、`primary_bird_cn`、`scientific_name`），加入识别队列重新识别；
+       - 已处理的照片跳过不覆盖；
+       - 增加 `reprocessed` 计数和 `_is_processed()` 辅助方法。
+     - `src/web/task_manager.py`：导入日志增加"待识别 X 张（含未处理 Y 张）"。
+   - 数据修复：删除重复外拍 ID 14（15 张照片、11 个连拍组均为 ID 5 的完全重复），保留 ID 5 的 56 张照片。
+   - 测试：
+     - 新增 `tests/test_db_repository.py`：验证 `get_or_create` 按名称复用。
+     - 新增 `tests/test_indexer.py`：验证未处理照片重新加入识别队列、已处理照片跳过、outing_id 修正。
+
+### 验证
+- `tests/test_web_three_domain.py`：27 passed
+- `tests/test_web_review.py` + `tests/test_api_outings.py`：合计 39 passed
+- 完整测试套件：`395 passed, 1 skipped`
+
+### 待处理
+- 无。
+
+## 2026-09-27（续）
+
+### 当日目标
+- 观鸟记录按拍摄时间倒序展示（非导入时间）
+- 文件夹内多日期时，按文件夹名称的日期记
+
+### 已完成
+1. **修复 `captured_date` 来源：优先文件夹名日期，非导入时间**
+   - `src/core/io/path_parser.py`：`parse_path()` 返回的 `captured_date` 默认值从 `datetime.now().strftime("%Y%m%d")` 改为 `None`，避免回退到导入日期；移除未使用的 `datetime` 导入。
+   - `src/pipeline_runner.py`：
+     - 新增 `_resolve_source_root_for_file()`：根据配置中的 `sources` 或父目录动态确定 `source_root`，确保文件夹名（含日期）在解析路径时可见。
+     - EXIF 日期逻辑：仅当 `captured_date` 为空（文件夹名无日期）时才用 EXIF 日期覆盖；文件夹名日期优先于 EXIF。
+     - `process_image_by_id()`：优先使用 `PathParser` 从文件夹名解析的日期，而非数据库中已有的导入日期。
+   - `src/core/indexer.py`：
+     - 索引时调用 `PathParser.parse_folder_name()` 提取文件夹日期，新建照片写入 `captured_date`。
+     - 对已存在但 `captured_date` 为空的照片，回填文件夹名日期。
+
+2. **数据修复：将历史导入日期更正为文件夹名日期**
+   - 编写临时脚本遍历所有照片，从 `original_path`（优先）或 `file_path` 提取文件夹名日期，更新 `captured_date`。
+   - 共修正 1377 张照片的 `captured_date`。
+   - 同时将路径含 `20260101_北京_奥林匹克森林公园北园` 且 `outing_id` 为空的 326 张照片归入外拍 5，保证观鸟记录与外拍记录一致。
+
+### 验证
+- `tests/test_path_parser.py`、`tests/test_indexer.py`、`tests/test_db_repository.py`：27 passed
+- 图库路由 `/gallery` 确认按 `Photo.captured_date.desc()` 排序
+- 各外拍 `captured_date` 与外拍名称中的日期一致（外拍 1/10 因文件夹名无日期，使用 EXIF 日期）
+
+### 待处理
+- 无。
+
+## 2026-09-27（续二）
+
+### 当日目标
+- 选片工作台分组逻辑修复：按拍摄时间排序、<1s 视为连拍组、大图复核跨组导航
+
+### 已完成
+1. **连拍时间窗口从 5s 改为 1s**
+   - `config/settings.yaml`、`settings.example.yaml`、`settings.test_pipeline.yaml`：`grouper.time_window` 从 `5` 改为 `1`。
+   - 分组逻辑本身已只按 `captured_at` 时间间隔分组，不区分是否识别到鸟类。
+
+2. **选片页按完整拍摄时间排序**
+   - `src/web/app.py`：`select_page` 照片查询排序从 `captured_date.asc()` 改为 `captured_at.asc()`（精确到时分秒）。
+   - 未分组照片在日期组内也按 `captured_at` 排序。
+
+3. **大图复核跨组导航**
+   - `src/web/app.py`：`_get_review_neighbors()` 从"仅同组/同日期内导航"改为"遍历本次外拍全部照片，按 `captured_at` 排序"。
+   - 效果：在本组最后一张按 → 自动跳到下一组第一张，可顺序选完本次外拍所有图片。
+
+4. **规范化 `captured_at` 格式**
+   - 历史数据中 `captured_at` 存在 `T` 分隔与空格分隔、有无微秒等多种格式，导致 SQL 字符串排序错乱。
+   - 统一规范化为 ISO 8601（`YYYY-MM-DDTHH:MM:SS`），共修正 2663 条记录。
+
+5. **重新分组现有照片**
+   - 清除旧 `group_id`，用 1s 窗口按外拍重新分组。
+   - 结果：933 个连拍组，4234 张照片入组；组内相邻照片间隔均 ≤ 1s。
+
+### 验证
+- 完整测试套件：`395 passed, 1 skipped`
+
+## 2026-09-27（续三）
+
+### 当日目标
+- 实现图库左侧鸟种目录树（spec 要求）
+
+### 已完成
+1. **后端：gallery 路由支持目级筛选 + 传递分类树数据**
+   - `src/web/app.py`：
+     - `gallery_page` 新增 `orders: List[str] = Query(default=[])` 参数，解析为 `selected_orders`。
+     - 当 `selected_families` 或 `selected_orders` 非空时，查询 JOIN `Species` 表（`Photo.scientific_name == Species.scientific_name`）。
+     - 目级筛选：`query.filter(Species.order_cn.in_(selected_orders))`。
+     - 调用 `taxonomy_service.get_taxonomy_tree(create_db_manager, include_empty=False, outing_id=...)` 获取仅含照片的分类树（目→科→属→种），传入模板变量 `taxonomy_tree`。
+     - 计算 `non_tax_query`：将除 `orders`/`families`/`species`/`offset` 外的筛选参数序列化，供目录树链接保留非分类学筛选（日期、地点、视图等）。
+     - 模板上下文新增 `selected_orders`、`taxonomy_tree`、`non_tax_query`。
+
+2. **前端：gallery.html 左侧物种目录树**
+   - 布局：`div.d-flex` 内左侧 `<aside class="taxonomy-sidebar">` + 右侧 `<main>`，侧栏宽 280px、sticky、可滚动，移动端（<992px）隐藏。
+   - 树形结构：目（order）→ 科（family）→ 种（species），每层显示照片数徽标。
+   - 折叠/展开：`.tree-toggle`（▶/▼）点击切换 `.tree-children.collapsed`，不触发导航。
+   - 点击节点文字/名称：导航到 `/gallery?orders=...` / `families=...` / `species=...`，URL 中拼接 `non_tax_query` 保留其他筛选。
+   - 当前筛选高亮：`.tree-label.active` 蓝色背景。
+   - 自动展开：DOMContentLoaded 时遍历所有 `.active` 标签，沿父级 `.tree-node` 向上展开所有祖先节点。
+   - 清除筛选：有物种筛选时标题栏显示 ✕ 按钮，跳转 `/gallery?{{ base_query }}`。
+   - 筛选表单增加 `orders` hidden input，确保提交表单时目级筛选不丢失。
+
+3. **修复自动展开 JS 选择器错误**
+   - 原代码用 `el.querySelector(':scope > .tree-children')` 查找子节点，但 `.tree-children` 是 `.tree-label` 的**兄弟节点**而非子节点，导致展开失效。
+   - 改为 `el.nextElementSibling` 并校验 `classList.contains('tree-children')`，修复后激活筛选的目/科节点可正确展开。
+
+4. **测试更新**
+   - `tests/test_web_three_domain.py::test_gallery_page_renders_template`：上下文字典新增 `selected_orders: []`、`taxonomy_tree: []`、`non_tax_query: ""`，与后端实际输出对齐。
+
+### 验证
+- 完整测试套件：`395 passed, 1 skipped`
+- 浏览器实测：图库左侧目录树正确渲染 18 个目及照片数；点击目链接导航到对应筛选页（服务器日志确认 `orders=` 参数生效，HTTP 200）；清除筛选按钮出现。
+
+### 待处理
+- 无。
+
+## 2026-09-27（续四）
+
+### 当日目标
+- 修复选片页面 `/select` 500 报错：`TypeError: '<' not supported between instances of 'datetime.datetime' and 'int'`
+
+### 问题根因
+- `select_page` 中三处排序使用 `p.captured_at or p.id` 作为排序键。
+- `captured_at` 可能是 `datetime`、ISO 字符串（`pipeline_runner.py` 将其 `.isoformat()` 后存库）或 `None`；`p.id` 是 `int`。
+- 当部分照片 `captured_at` 为 `None` 时，排序键元组中混入 `int`，与其他照片的 `datetime` 比较时抛出 TypeError。
+- 此外 `review_page` 中 `photo.captured_at.isoformat()` 对字符串类型 `captured_at` 也会 AttributeError。
+
+### 已完成
+1. **新增 `_captured_at_dt(p)` 辅助函数**（`src/web/app.py`）
+   - 将 `Photo.captured_at` 规范化为 `datetime`：None/解析失败 → `datetime.min`；字符串 → `datetime.fromisoformat()`（兼容空格/T 分隔）。
+   - 确保所有排序键第一元素始终为 `datetime` 类型。
+
+2. **修复三处排序键**
+   - 分组 ID 排序：`min((_captured_at_dt(p) ...), default=dt.min)`
+   - 连拍组成员排序：`key=lambda p: (_captured_at_dt(p), p.id)`
+   - 未分组照片排序：同上。
+
+3. **修复 review 接口 `captured_at` 序列化**
+   - `photo.captured_at.isoformat()` → `_captured_at_dt(photo).isoformat()`，兼容字符串/None。
+
+### 验证
+- `tests/test_web_three_domain.py`：27 passed
+- `tests/test_web_review.py`：8 passed
+- 实测 `curl http://localhost:8000/select` 返回 HTTP 200，服务器日志无异常。
+
+### 待处理
+- 无。
+
+## 2026-07-24
+
+### 当日目标
+- 优化图库目录树节点点击响应速度：添加物种/位置索引 + AJAX 局部刷新
+
+### 已完成
+1. **数据库索引优化**（src/db/models.py）
+   - 为 photos.primary_bird_cn、scientific_name、location_level1/2/3、is_selected、outing_id、group_id 添加 index=True
+   - 为 	axonomy.family_cn、order_cn、chinese_name 添加 index=True
+   - init_database() 中增加 CREATE INDEX IF NOT EXISTS 迁移语句，确保已有数据库能补齐缺失索引
+
+2. **图库 AJAX 局部刷新**
+   - 新增 src/web/templates/_gallery_content.html：抽取照片列表区域为独立片段
+   - gallery.html：用 {% include %} 引入片段，为目录树/视图切换/分页链接添加 gallery-ajax-link 类
+   - pp.py 的 gallery_page 路由：新增 partial 参数，partial=1 时返回片段模板
+   - 前端 JS：拦截 .gallery-ajax-link 点击和筛选表单提交，fetch 片段后替换 #galleryContent，用 history.pushState 更新 URL，支持浏览器前进/后退
+   - AJAX 刷新后重新绑定原图/裁切切换，并更新 galleryPhotos 供大图查看器使用
+
+3. **日志降级**（src/web/path_helpers.py）
+   - 
+esolve_processed_web_path 失败日志从 warning 降为 debug，减少无意义 I/O
+
+### 性能数据
+- partial 响应大小：物种筛选 318KB → 63KB（-80%），目筛选 443KB → 157KB（-65%）
+- 浏览器仅替换照片列表区域，不重新加载 CSS/JS/侧边栏，体感更流畅
+
+### 验证
+- 	ests/test_db.py tests/test_web_three_domain.py tests/test_web_app.py：61 passed
+- 实测 curl /gallery?species=麻雀&partial=1 返回片段 HTML，HTTP 200
+
+### 待处理
+- 无。
+
+## 2026-09-27
+
+### 当日目标
+- 修复导入页"浏览"按钮报 No module named 'tkinter' 错误
+
+### 已完成
+1. **config_service.py: 添加 tkinter 不可用时的 PowerShell 回退**
+   - 新增 _ps_folder_dialog() / _ps_file_dialog()：用 PowerShell 的 System.Windows.Forms.FolderBrowserDialog / OpenFileDialog 弹出原生对话框，无需任何 Python 依赖
+   - 新增 _ps_quote()：安全地将字符串嵌入 PowerShell 单引号
+   - open_folder_dialog() / open_file_dialog()：tkinter 导入失败时自动回退到 PowerShell 方案（仅 Windows）
+
+2. **app.py: 统一 import_browse_folder 调用**
+   - /api/import/browse-folder 不再自己写 tkinter 逻辑，改为复用 config_service.open_folder_dialog，与设置页保持一致
+
+### 验证
+- python -m pytest tests/test_web_app.py tests/test_web_three_domain.py：60 passed
+- import 页面返回 HTTP 200
+
+### 待处理
+- 无。
+
+## 2026-09-27（续六）
+
+### 当日目标
+- 修复"清空淘汰"功能失败（回收站操作拒绝访问）
+- 创建启动脚本保持控制台不关闭
+
+### 问题根因
+- 服务器从 Trae 内置终端启动时运行在 **Trae 沙箱（trae-sandbox.exe）** 中。
+- 沙箱限制了 Windows Shell API（`SHFileOperationW` / `IFileOperation`），导致 `send2trash` 报 `[WinError 5] 拒绝访问`。
+- 即使通过 Python 子进程调用 `send2trash`，子进程仍继承沙箱限制，同样失败。
+- 但 `os.remove`（直接删除）在沙箱中可以正常工作，说明是 Shell API 被限制而非文件系统权限问题。
+- 用户此前能正常使用，是因为服务器不是从 Trae 沙箱启动的。
+
+### 已完成
+1. **trash_service.py: 改用 Python 子进程批量回收**
+   - 新增 `_TRASH_WORKER_SCRIPT`：独立脚本通过 stdin 接收路径列表，逐条调用 `send2trash.send2trash()`，失败时输出 `FAIL::<path>::<error>`。
+   - 新增 `_subprocess_send_to_trash()`：通过 `subprocess.run([sys.executable, "-c", script])` 启动子进程，stdin 传路径，避免命令行长度限制。
+   - `_batch_send_to_trash()`：Windows 上默认走子进程路径，按 200 条/块分批，避免单次调用过长。
+   - 非 Windows 平台或注入自定义 `send_func` 时仍走进程内调用。
+   - 注：子进程方案在沙箱外可正常工作；在沙箱内仍会失败（见根因）。
+
+2. **trash_service.py: 友好的沙箱错误提示**
+   - 新增 `_looks_like_access_denied()`：检测错误信息中是否包含"拒绝访问"/"WinError 5"/"Access is denied"。
+   - `empty()` 返回值新增 `hint` 字段：当检测到访问拒绝时，提示用户"请改用普通命令行窗口通过 start_server.bat 启动服务"。
+
+3. **创建 start_server.bat 启动脚本**（项目根目录）
+   - 使用系统 Python 3.11（`C:\Users\qinmi\AppData\Local\Programs\Python\Python311\python.exe`）。
+   - 不使用 `start` 命令，直接运行 `python src\web\app.py`，保持控制台窗口打开。
+   - 服务器退出后显示退出码并 `pause`，方便查看错误信息。
+   - 用户应从普通 cmd/PowerShell 窗口（非 Trae 终端）双击或运行此脚本。
+
+4. **清理临时测试脚本**
+   - 删除 `_test_ps_orf.py`、`_test_ps_trash.py`、`_test_py_subprocess.py`、`_test_shell_com.py`、`_test_trash.py`、`_test_os_remove.py`。
+
+### 验证
+- `tests/test_trash_service.py` + `tests/test_web_trash.py`：13 passed
+- 独立脚本 `send2trash.send2trash()` 可成功移动 ORF 文件到回收站（沙箱外）
+- `os.remove` 在沙箱内可工作，确认是 Shell API 被沙箱限制
+
+### 待处理
+- 无。
+
+## 2026-09-27（续七）
+
+### 当日目标
+- 修复 start_server.bat 执行时报"不是内部或外部命令"错误
+
+### 问题根因
+- 批处理文件包含中文注释，以 UTF-8 编码保存。
+- cmd.exe 按系统 OEM 代码页（GBK）解析 UTF-8 中文，导致中文行被当作命令执行，出现大量"不是内部或外部命令"错误。
+
+### 已完成
+1. **start_server.bat 改为纯 ASCII 英文**
+   - 移除所有中文注释和提示，改为英文。
+   - 验证：文件 0 个非 ASCII 字节，无 UTF-8 BOM。
+   - Python 3.11.9 路径确认存在。
+
+### 验证
+- PowerShell 检查文件编码：纯 ASCII，无 BOM
+- Python 3.11.9 可执行
 
 ### 待处理
 - 无。

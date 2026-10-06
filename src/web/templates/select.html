@@ -75,8 +75,17 @@
             color: #fff;
             border-color: #6c757d;
         }
+        .tag-candidate-item {
+            background: #212529;
+            color: #fff;
+            border-color: #6c757d;
+        }
         .species-candidate-item:hover,
-        .species-candidate-item:focus {
+        .species-candidate-item:focus,
+        .species-candidate-item.active,
+        .tag-candidate-item:hover,
+        .tag-candidate-item:focus,
+        .tag-candidate-item.active {
             background: #343a40;
             color: #fff;
         }
@@ -87,16 +96,30 @@
 
     <div class="container-fluid mt-4 px-4">
         <div class="row mb-3">
-            <div class="col-12 d-flex justify-content-between align-items-center">
-                <div>
+            <div class="col-12 d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <div class="d-flex align-items-center gap-3">
                     <h5 class="mb-0">🎯 选片工作台</h5>
-                    {% if current_outing %}
-                    <small class="text-muted">当前外拍：{{ current_outing.name }}（{{ current_outing.start_date }}）</small>
-                    {% endif %}
+                    <form action="/select" method="get" class="d-flex align-items-center">
+                        <label class="small text-muted me-2 text-nowrap" for="outingSelect">外拍：</label>
+                        <select class="form-select form-select-sm" id="outingSelect" name="outing_id" onchange="this.form.submit()" style="min-width: 200px;">
+                            <option value="0" {{ 'selected' if outing_id == 0 else '' }}>全部外拍</option>
+                            {% for o in outings %}
+                            <option value="{{ o.id }}" {{ 'selected' if outing_id == o.id else '' }}>
+                                {{ o.name }}（{{ o.start_date }}）· {{ o.photo_count }}张
+                            </option>
+                            {% endfor %}
+                        </select>
+                        {% if current_date %}<input type="hidden" name="date" value="{{ current_date }}">{% endif %}
+                        {% if current_rating %}<input type="hidden" name="rating" value="{{ current_rating }}">{% endif %}
+                        {% if current_unprocessed %}<input type="hidden" name="unprocessed" value="{{ current_unprocessed }}">{% endif %}
+                    </form>
                 </div>
                 <div class="d-flex align-items-center gap-3">
                     <form class="d-flex" action="/select" method="get">
                         <input class="form-control form-control-sm me-2" type="search" name="date" placeholder="选择日期 YYYY-MM-DD" value="{{ current_date }}">
+                        {% if outing_id %}<input type="hidden" name="outing_id" value="{{ outing_id }}">{% endif %}
+                        {% if current_rating %}<input type="hidden" name="rating" value="{{ current_rating }}">{% endif %}
+                        {% if current_unprocessed %}<input type="hidden" name="unprocessed" value="{{ current_unprocessed }}">{% endif %}
                         <button class="btn btn-sm btn-outline-secondary" type="submit">筛选</button>
                     </form>
                     <div class="form-check form-switch">
@@ -219,6 +242,7 @@
     <div class="modal fade" id="reviewModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static">
         <div class="modal-dialog modal-fullscreen modal-dialog-centered" id="reviewDialog">
             <div class="modal-content" style="background: #111;">
+                <div class="toast-container position-fixed top-0 start-50 translate-middle-x p-3" style="z-index: 2000;" id="reviewToastContainer"></div>
                 <div class="modal-header border-secondary" style="padding: 0.5rem 1rem;">
                     <div class="d-flex align-items-center gap-3 text-white">
                         <h5 class="modal-title mb-0" id="reviewTitle">照片复核</h5>
@@ -281,6 +305,18 @@
                                     <div class="list-group list-group-flush small species-candidates" id="reviewSpeciesCandidates"></div>
                                 </div>
                                 <hr class="border-secondary">
+                                <h6 class="card-subtitle mb-2 text-white-50">标签（T 键，Enter 添加）</h6>
+                                <div id="reviewTagsChips" class="mb-2 d-flex flex-wrap gap-1"></div>
+                                <div class="position-relative mb-2">
+                                    <input type="text" class="form-control form-control-sm bg-dark text-white border-secondary" id="reviewTagInput"
+                                           placeholder="输入标签，如：风景、昆虫" autocomplete="off">
+                                    <div class="list-group list-group-flush small species-candidates" id="reviewTagCandidates"></div>
+                                </div>
+                                <hr class="border-secondary">
+                                <h6 class="card-subtitle mb-2 text-white-50">备注（N 键，Ctrl+Enter 保存）</h6>
+                                <textarea class="form-control form-control-sm bg-dark text-white border-secondary mb-2" id="reviewNoteInput" rows="2"
+                                          placeholder="添加备注..."></textarea>
+                                <hr class="border-secondary">
                                 <h6 class="card-subtitle mb-2 text-white-50">操作</h6>
                                 <div class="d-grid gap-2">
                                     <button class="btn btn-success btn-sm" id="reviewSelectBtn" onclick="reviewMark('select')">✅ 选中（Space）</button>
@@ -288,7 +324,7 @@
                                     <button class="btn btn-info btn-sm" id="reviewMetaBtn" onclick="reviewWriteMetadata()">💾 写入元数据（M）</button>
                                 </div>
                                 <div class="mt-3 small text-white-50">
-                                    快捷键：←/→ 切换照片 · 滚轮缩放 · 拖拽平移 · ESC 关闭
+                                    快捷键：←/→ 切换照片 · C 修正鸟种 · T 标签 · N 备注 · ESC 关闭
                                 </div>
                             </div>
                         </div>
@@ -329,9 +365,11 @@
 
         function markPhoto(id, action) {
             const card = document.querySelector(`#photo-card-${id} .card`);
-            card.classList.remove('selected-card', 'rejected-card');
-            if (action === 'select') card.classList.add('selected-card');
-            if (action === 'reject') card.classList.add('rejected-card');
+            if (card) {
+                card.classList.remove('selected-card', 'rejected-card');
+                if (action === 'select') card.classList.add('selected-card');
+                if (action === 'reject') card.classList.add('rejected-card');
+            }
             fetch('/api/select/mark', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
@@ -398,7 +436,9 @@
                     })
                         .then(r => r.json())
                         .then(res => {
-                            alert(`完成：回收 ${res.moved} 张，删除记录 ${res.deleted} 条，跳过 ${res.skipped} 张，失败 ${res.errors.length} 张`);
+                            let msg = `完成：回收 ${res.moved} 张，删除记录 ${res.deleted} 条，跳过 ${res.skipped} 张，失败 ${res.errors.length} 张`;
+                            if (res.hint) msg += '\n\n' + res.hint;
+                            alert(msg);
                             location.reload();
                         })
                         .catch(e => { console.error(e); alert('清空淘汰失败'); });
@@ -563,12 +603,12 @@
             if (!reviewModal) reviewModal = new bootstrap.Modal(document.getElementById('reviewModal'));
             reviewModal.show();
             resetTransform();
+            loadAllKnownTags();
             loadReview(photoId);
         }
 
         function loadReview(photoId) {
             currentReviewPhotoId = photoId;
-            resetTransform();
             fetch(`/api/photo/${photoId}/review`)
                 .then(r => r.json())
                 .then(data => {
@@ -577,7 +617,7 @@
                 })
                 .catch(e => {
                     console.error(e);
-                    alert('加载复核数据失败');
+                    reviewToast('加载复核数据失败', 'danger');
                 });
         }
 
@@ -645,16 +685,24 @@
             selectedReviewSpecies = null;
             reviewSpeciesActiveIndex = -1;
 
+            reviewTags = data.photo.tags || [];
+            renderReviewTagsChips();
+            document.getElementById('reviewTagInput').value = '';
+            document.getElementById('reviewTagCandidates').classList.remove('show');
+            document.getElementById('reviewNoteInput').value = data.photo.note || '';
+
             const canvas = document.getElementById('reviewCanvas');
             const img = new Image();
             img.src = `/api/photo/${photo.id}/preview`;
             img.onload = () => {
                 naturalWidth = img.naturalWidth;
                 naturalHeight = img.naturalHeight;
+                // 先计算并应用适合窗口的缩放，再设置 canvas 尺寸，
+                // 避免切换照片时先闪现原尺寸再缩小
+                fitToWindow();
                 canvas.width = naturalWidth;
                 canvas.height = naturalHeight;
                 drawCanvas(photo, data);
-                fitToWindow();
             };
         }
 
@@ -754,12 +802,25 @@
             metaBtn.textContent = '💾 写入元数据（M）';
         }
 
+        function reviewToast(message, type = 'success') {
+            const container = document.getElementById('reviewToastContainer');
+            const el = document.createElement('div');
+            el.className = `toast align-items-center text-bg-${type} border-0`;
+            el.setAttribute('role', 'alert');
+            el.innerHTML = `<div class="d-flex"><div class="toast-body">${message}</div></div>`;
+            container.appendChild(el);
+            const t = new bootstrap.Toast(el, { delay: 1500 });
+            el.addEventListener('hidden.bs.toast', () => el.remove());
+            t.show();
+        }
+
         function reviewMark(action) {
             if (!currentReviewPhotoId) return;
             markPhoto(currentReviewPhotoId, action);
             const btn = action === 'select' ? document.getElementById('reviewSelectBtn') : document.getElementById('reviewRejectBtn');
             btn.classList.add('disabled');
             btn.textContent = action === 'select' ? '已选中' : '已淘汰';
+            reviewToast(action === 'select' ? '✅ 已选中' : '❌ 已淘汰', action === 'select' ? 'success' : 'danger');
             if (action === 'reject' && currentReviewData && currentReviewData.next_photo_id) {
                 setTimeout(() => loadReview(currentReviewData.next_photo_id), 300);
             }
@@ -871,6 +932,169 @@
             }
         });
 
+        let reviewTags = [];
+        let allKnownTags = [];
+        let reviewTagMatches = [];
+        let reviewTagActiveIndex = -1;
+
+        function loadAllKnownTags() {
+            fetch('/api/tags')
+                .then(r => r.json())
+                .then(data => { allKnownTags = data.tags || []; })
+                .catch(e => console.error(e));
+        }
+
+        function renderReviewTagsChips() {
+            const container = document.getElementById('reviewTagsChips');
+            container.innerHTML = '';
+            reviewTags.forEach(tag => {
+                const chip = document.createElement('span');
+                chip.className = 'badge bg-secondary d-inline-flex align-items-center gap-1';
+                chip.innerHTML = `<span>${tag}</span>`;
+                const close = document.createElement('button');
+                close.type = 'button';
+                close.className = 'btn-close btn-close-white';
+                close.style.cssText = 'font-size: 0.55rem; padding: 0;';
+                close.setAttribute('aria-label', '删除标签');
+                close.onclick = () => removeReviewTag(tag);
+                chip.appendChild(close);
+                container.appendChild(chip);
+            });
+        }
+
+        function updateReviewTagActiveItem() {
+            const list = document.getElementById('reviewTagCandidates');
+            const items = list.querySelectorAll('.tag-candidate-item');
+            items.forEach((item, i) => item.classList.toggle('active', i === reviewTagActiveIndex));
+            const activeItem = items[reviewTagActiveIndex];
+            if (activeItem) activeItem.scrollIntoView({ block: 'nearest' });
+        }
+
+        function filterReviewTagCandidates(query) {
+            const list = document.getElementById('reviewTagCandidates');
+            const q = (query || '').trim();
+            reviewTagMatches = allKnownTags.filter(t => !reviewTags.includes(t) && (!q || t.includes(q)));
+            list.innerHTML = '';
+            reviewTagMatches.forEach(t => {
+                const item = document.createElement('button');
+                item.className = 'list-group-item list-group-item-action small py-1 tag-candidate-item';
+                item.type = 'button';
+                item.textContent = t;
+                item.onclick = () => addReviewTag(t);
+                list.appendChild(item);
+            });
+            reviewTagActiveIndex = reviewTagMatches.length > 0 ? 0 : -1;
+            updateReviewTagActiveItem();
+            list.classList.toggle('show', reviewTagMatches.length > 0);
+        }
+
+        function addReviewTag(tag) {
+            tag = (tag || '').trim();
+            const input = document.getElementById('reviewTagInput');
+            input.value = '';
+            filterReviewTagCandidates('');
+            if (!tag || reviewTags.includes(tag)) return;
+            reviewTags.push(tag);
+            renderReviewTagsChips();
+            saveReviewTags();
+        }
+
+        function removeReviewTag(tag) {
+            reviewTags = reviewTags.filter(t => t !== tag);
+            renderReviewTagsChips();
+            saveReviewTags();
+        }
+
+        function saveReviewTags() {
+            if (!currentReviewPhotoId) return;
+            fetch(`/api/photo/${currentReviewPhotoId}/tags`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ tags: reviewTags })
+            })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        reviewTags = data.tags || reviewTags;
+                        renderReviewTagsChips();
+                        reviewToast('标签已保存', 'success');
+                        refreshProgress();
+                        loadAllKnownTags();
+                    } else {
+                        throw new Error(data.detail || 'unknown error');
+                    }
+                })
+                .catch(e => {
+                    console.error(e);
+                    reviewToast('标签保存失败：' + (e.message || '未知错误'), 'danger');
+                });
+        }
+
+        const reviewTagInput = document.getElementById('reviewTagInput');
+        reviewTagInput.addEventListener('input', () => filterReviewTagCandidates(reviewTagInput.value));
+        reviewTagInput.addEventListener('focus', () => filterReviewTagCandidates(reviewTagInput.value));
+        reviewTagInput.addEventListener('blur', () => {
+            setTimeout(() => document.getElementById('reviewTagCandidates').classList.remove('show'), 150);
+        });
+        reviewTagInput.addEventListener('keydown', e => {
+            const list = document.getElementById('reviewTagCandidates');
+            const listVisible = list.classList.contains('show') && reviewTagMatches.length > 0;
+            if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                if (!listVisible) return;
+                e.preventDefault();
+                const delta = e.key === 'ArrowDown' ? 1 : -1;
+                const len = reviewTagMatches.length;
+                if (reviewTagActiveIndex < 0) {
+                    reviewTagActiveIndex = e.key === 'ArrowDown' ? 0 : len - 1;
+                } else {
+                    reviewTagActiveIndex = (reviewTagActiveIndex + delta + len) % len;
+                }
+                updateReviewTagActiveItem();
+            } else if (e.key === 'Enter') {
+                e.preventDefault();
+                const typed = reviewTagInput.value.trim();
+                if (listVisible && (!typed || reviewTagActiveIndex >= 0)) {
+                    const idx = reviewTagActiveIndex >= 0 ? reviewTagActiveIndex : 0;
+                    addReviewTag(reviewTagMatches[idx]);
+                } else if (typed) {
+                    addReviewTag(typed);
+                }
+            }
+        });
+
+        function saveReviewNote() {
+            if (!currentReviewPhotoId) return;
+            const textarea = document.getElementById('reviewNoteInput');
+            const note = textarea.value;
+            fetch(`/api/photo/${currentReviewPhotoId}/note`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ note: note })
+            })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        reviewToast('备注已保存', 'success');
+                    } else {
+                        throw new Error(data.detail || 'unknown error');
+                    }
+                })
+                .catch(e => {
+                    console.error(e);
+                    reviewToast('备注保存失败：' + (e.message || '未知错误'), 'danger');
+                });
+            textarea.blur();
+            document.getElementById('reviewModal').focus();
+        }
+
+        const reviewNoteInput = document.getElementById('reviewNoteInput');
+        reviewNoteInput.addEventListener('keydown', e => {
+            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault();
+                saveReviewNote();
+            }
+        });
+
         function searchReviewSpecies(query) {
             const list = document.getElementById('reviewSpeciesCandidates');
             list.innerHTML = '';
@@ -900,7 +1124,7 @@
 
         function confirmReviewSpecies() {
             if (!selectedReviewSpecies) {
-                alert('请从候选列表中选择鸟种');
+                reviewToast('请从候选列表中选择鸟种', 'warning');
                 return;
             }
             if (!currentReviewPhotoId) return;
@@ -921,19 +1145,21 @@
                         document.getElementById('reviewBirdName').textContent = cn || sci;
                         document.getElementById('reviewSciName').textContent = sci;
                         document.getElementById('reviewSpeciesInput').value = '';
+                        document.getElementById('reviewSpeciesInput').blur();
+                        document.getElementById('reviewModal').focus();
                         document.getElementById('reviewSpeciesCandidates').innerHTML = '';
                         selectedReviewSpecies = null;
                         reviewSpeciesMatches = [];
                         reviewSpeciesActiveIndex = -1;
                         refreshProgress();
-                        alert('鸟种已修正');
+                        reviewToast(`已修正为：${cn || sci}`, 'success');
                     } else {
                         throw new Error(data.detail || 'unknown error');
                     }
                 })
                 .catch(e => {
                     console.error(e);
-                    alert('修正失败：' + (e.message || '未知错误'));
+                    reviewToast('修正失败：' + (e.message || '未知错误'), 'danger');
                 });
         }
 
@@ -958,7 +1184,9 @@
 
         window.addEventListener('mouseup', () => isDragging = false);
 
-        document.getElementById('reviewModal').addEventListener('keydown', e => {
+        document.addEventListener('keydown', e => {
+            const modalOpen = document.getElementById('reviewModal').classList.contains('show');
+            if (!modalOpen) return;
             const active = document.activeElement;
             if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) {
                 if (e.key === 'Escape') active.blur();
@@ -993,6 +1221,16 @@
                 case 'C':
                     e.preventDefault();
                     document.getElementById('reviewSpeciesInput').focus();
+                    break;
+                case 't':
+                case 'T':
+                    e.preventDefault();
+                    document.getElementById('reviewTagInput').focus();
+                    break;
+                case 'n':
+                case 'N':
+                    e.preventDefault();
+                    document.getElementById('reviewNoteInput').focus();
                     break;
                 case 'Escape':
                     reviewModal.hide();

@@ -462,12 +462,12 @@ def test_taxonomy_and_search_endpoints_forward_requests(monkeypatch):
             self.calls.append(("search_species", query, limit))
             return [{"scientific_name": "Parus minor"}]
 
-        def get_taxonomy_tree_fast(self, include_empty):
-            self.calls.append(("tree_fast", include_empty))
+        def get_taxonomy_tree_fast(self, include_empty, outing_id=0):
+            self.calls.append(("tree_fast", include_empty, outing_id))
             return [{"name": "fast"}]
 
-        def get_taxonomy_tree(self, include_empty, date_filter):
-            self.calls.append(("tree_date", include_empty, date_filter))
+        def get_taxonomy_tree(self, include_empty, date_filter, outing_id=0):
+            self.calls.append(("tree_date", include_empty, date_filter, outing_id))
             return [{"name": date_filter}]
 
         def get_stats_by_level(self, level, date_filter):
@@ -497,8 +497,8 @@ def test_taxonomy_and_search_endpoints_forward_requests(monkeypatch):
     assert web_app.search_taxonomy(q="sparrow", limit=5) == [{"level": "species", "name": "sparrow"}]
 
     assert managers[0].calls == [("search_species", "tit", 20)]
-    assert managers[1].calls == [("tree_fast", False)]
-    assert managers[2].calls == [("tree_date", True, "20260320")]
+    assert managers[1].calls == [("tree_fast", False, 0)]
+    assert managers[2].calls == [("tree_date", True, "20260320", 0)]
     assert managers[3].calls == [("stats", "family", "20260320")]
     assert managers[4].calls == [("search_taxonomy", "sparrow", 5)]
     assert all(manager.closed for manager in managers)

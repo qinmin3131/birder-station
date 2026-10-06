@@ -269,6 +269,33 @@ class WingScribePipeline:
         if callback and total > 0:
             callback(self.processed_count, total)
 
+    def _resolve_source_root_for_file(self, file_path: str) -> Path:
+        """为按 photo_id 处理的文件解析合适的 source_root。
+
+        使用文件的直接父目录作为 source_root 会使 PathParser 看不到
+        含日期的文件夹名，导致 captured_date 回退。这里优先从配置的
+        sources 中找最长匹配前缀，找不到则回退到文件的上级目录。
+        """
+        file_path_str = str(file_path)
+        sources = (self.config or {}).get('paths', {}).get('sources', [])
+        best_root = None
+        best_len = -1
+        for source in sources:
+            if not source.get('enabled', True):
+                continue
+            src = source.get('path', '')
+            if src and file_path_str.startswith(src) and len(src) > best_len:
+                best_root = Path(src)
+                best_len = len(src)
+        if best_root is not None:
+            return best_root
+        # 回退：使用文件的上级目录，使含日期的文件夹名出现在 rel_path 中
+        parent = Path(file_path_str).parent
+        grandparent = parent.parent
+        if grandparent != parent:
+            return grandparent
+        return parent
+
     @property
     def detector(self):
         """Lazy load detector with thread-safe initialization."""
@@ -619,7 +646,16 @@ class WingScribePipeline:
                 pass
         
         # Store absolute paths for database
-        captured_at = read_capture_datetime(self.exif_writer, entry.path)
+        # Prefer reading EXIF from original file (has full metadata) over processed/cropped file
+        exif_source = getattr(entry, 'original_path', None) or entry.path
+        captured_at = read_capture_datetime(self.exif_writer, exif_source)
+
+        # If captured_date is missing (no folder-name date parsed), fall back to EXIF date.
+        # Folder-name date takes priority over EXIF per user requirement.
+        if captured_at and isinstance(captured_at, datetime):
+            exif_date_str = captured_at.strftime("%Y%m%d")
+            if not meta.get('captured_date'):
+                meta['captured_date'] = exif_date_str
         if isinstance(captured_at, datetime):
             captured_at = captured_at.isoformat()
         if photo_id is not None:
@@ -822,6 +858,7 @@ class WingScribePipeline:
         class PhotoEntry:
             def __init__(self, record):
                 self.path = record['file_path'] or record['original_path']
+                self.original_path = record.get('original_path')
                 self.name = record['filename']
                 self.size = Path(self.path).stat().st_size if Path(self.path).exists() else 0
 
@@ -874,11 +911,16 @@ class WingScribePipeline:
                     self._emit_progress()
                     continue
 
-                source_root = Path(file_path).parent
+                # Find a source_root that allows folder-name date parsing.
+                # Using the file's immediate parent would hide the date folder
+                # from PathParser, so we look up configured sources first.
+                source_root = self._resolve_source_root_for_file(file_path)
                 parser = PathParser(source_root, None)
                 meta = parser.parse(file_path)
-                # Override location/captured_date with DB values if available
-                if record.get('captured_date'):
+                # Override location/captured_date with DB values if available.
+                # captured_date: folder-name date takes priority; only fall back to
+                # DB value when the path parser found no date.
+                if not meta.get('captured_date') and record.get('captured_date'):
                     meta['captured_date'] = record['captured_date']
                 if record.get('location_tag'):
                     meta['location_tag'] = record['location_tag']

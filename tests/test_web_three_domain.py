@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from src.db.models import Base, Photo, PhotoGroup, Species, Outing
+from src.db.models import Base, Photo, PhotoGroup, Species, Taxonomy, Outing
 from src.web import app as web_app
 from fastapi import HTTPException
 
@@ -58,6 +58,7 @@ def test_select_page_renders_template(tmp_path, monkeypatch):
         "context": {
             "request": ANY, "groups": [], "current_date": "",
             "current_rating": "", "current_unprocessed": "", "current_outing": None, "outing_id": 0,
+            "outings": [],
             "progress": {"total": 0, "processed": 0, "unprocessed": 0, "percent": 0},
         },
     }
@@ -116,10 +117,11 @@ def test_select_page_groups_photos_by_date(tmp_path, monkeypatch):
 
     context = templates.calls[0]["context"]
     assert len(context["groups"]) == 2
-    assert context["groups"][0]["date"] == "2026-07-21"
-    assert len(context["groups"][0]["photos"]) == 1
-    assert context["groups"][1]["date"] == "2026-07-20"
-    assert len(context["groups"][1]["photos"]) == 2
+    # 现在按时间升序排列（最早的在前）
+    assert context["groups"][0]["date"] == "2026-07-20"
+    assert len(context["groups"][0]["photos"]) == 2
+    assert context["groups"][1]["date"] == "2026-07-21"
+    assert len(context["groups"][1]["photos"]) == 1
 
     session.close()
 
@@ -201,20 +203,21 @@ def test_gallery_page_renders_template(tmp_path, monkeypatch):
             "date_to": "",
             "selected_species": [],
             "selected_families": [],
-            "selected_locations": [],
+            "selected_orders": [],
             "selected_level1": [],
             "selected_level2": [],
             "selected_level3": [],
+            "selected_locations": [],
             "limit": 50,
             "offset": 0,
             "total_count": 0,
             "available_dates": [],
-            "available_species": [],
-            "available_families": [],
             "available_locations": [],
             "available_level1": [],
             "available_level2": [],
             "available_level3": [],
+            "taxonomy_tree": [],
+            "non_tax_query": "",
             "base_query": "",
             "has_next": False,
             "has_prev": False,
@@ -296,6 +299,8 @@ def test_gallery_page_filters_species_and_family(tmp_path, monkeypatch):
     session, _ = _create_session(db_path)
     session.add(Species(scientific_name="Passer montanus", chinese_name="麻雀", family_cn="雀科", photo_count=1))
     session.add(Species(scientific_name="Turdus merula", chinese_name="乌鸫", family_cn="鸫科", photo_count=1))
+    session.add(Taxonomy(scientific_name="Passer montanus", chinese_name="麻雀", family_cn="雀科"))
+    session.add(Taxonomy(scientific_name="Turdus merula", chinese_name="乌鸫", family_cn="鸫科"))
     session.add(Photo(file_path="a.jpg", filename="a.jpg", primary_bird_cn="麻雀", scientific_name="Passer montanus"))
     session.add(Photo(file_path="b.jpg", filename="b.jpg", primary_bird_cn="乌鸫", scientific_name="Turdus merula"))
     session.commit()
@@ -486,7 +491,12 @@ def test_guide_page_groups_species_by_family(tmp_path, monkeypatch):
     session.add(Species(scientific_name="Passer domesticus", chinese_name="家麻雀", family_cn="雀科", family_sci="Passeridae", photo_count=2))
     session.add(Species(scientific_name="Passer montanus", chinese_name="树麻雀", family_cn="雀科", family_sci="Passeridae", photo_count=1))
     session.add(Species(scientific_name="Cyanocitta cristata", chinese_name="冠蓝鸦", family_cn="鸦科", family_sci="Corvidae", photo_count=1))
+    session.add(Taxonomy(scientific_name="Passer domesticus", chinese_name="家麻雀", family_cn="雀科", family_sci="Passeridae"))
+    session.add(Taxonomy(scientific_name="Passer montanus", chinese_name="树麻雀", family_cn="雀科", family_sci="Passeridae"))
+    session.add(Taxonomy(scientific_name="Cyanocitta cristata", chinese_name="冠蓝鸦", family_cn="鸦科", family_sci="Corvidae"))
     session.add(Photo(file_path="a.jpg", filename="a.jpg", scientific_name="Passer domesticus", quality_score=80, captured_date="2026-07-20"))
+    session.add(Photo(file_path="b.jpg", filename="b.jpg", scientific_name="Passer montanus", quality_score=70, captured_date="2026-07-20"))
+    session.add(Photo(file_path="c.jpg", filename="c.jpg", scientific_name="Cyanocitta cristata", quality_score=75, captured_date="2026-07-21"))
     session.commit()
     session.close()
 
@@ -518,6 +528,8 @@ def test_guide_page_highlights_new_species(tmp_path, monkeypatch):
 
     session.add(Species(scientific_name="Passer domesticus", chinese_name="家麻雀", family_cn="雀科", family_sci="Passeridae", photo_count=2))
     session.add(Species(scientific_name="Cyanocitta cristata", chinese_name="冠蓝鸦", family_cn="鸦科", family_sci="Corvidae", photo_count=1))
+    session.add(Taxonomy(scientific_name="Passer domesticus", chinese_name="家麻雀", family_cn="雀科", family_sci="Passeridae"))
+    session.add(Taxonomy(scientific_name="Cyanocitta cristata", chinese_name="冠蓝鸦", family_cn="鸦科", family_sci="Corvidae"))
     session.add(Photo(file_path="a.jpg", filename="a.jpg", scientific_name="Passer domesticus", outing_id=old_outing.id, captured_date="2026-07-20"))
     session.add(Photo(file_path="b.jpg", filename="b.jpg", scientific_name="Cyanocitta cristata", outing_id=new_outing.id, captured_date="2026-07-21"))
     session.add(Photo(file_path="c.jpg", filename="c.jpg", scientific_name="Passer domesticus", outing_id=new_outing.id, captured_date="2026-07-21"))
@@ -586,6 +598,12 @@ def test_guide_http_route_renders_content(tmp_path, monkeypatch):
         family_cn="雀科",
         family_sci="Passeridae",
         photo_count=1,
+    ))
+    session.add(Taxonomy(
+        scientific_name="Passer domesticus",
+        chinese_name="家麻雀",
+        family_cn="雀科",
+        family_sci="Passeridae",
     ))
     session.add(Photo(
         file_path="a.jpg",

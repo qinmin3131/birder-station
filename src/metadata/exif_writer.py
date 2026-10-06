@@ -443,16 +443,22 @@ def build_exif_tags_from_photo(photo: Any) -> Dict[str, Any]:
 
     Fields follow the spec: ImageDescription, XMP:Title, XMP:Description,
     IPTC:Keywords, XMP:Subject, XMP:Pick, XMP:Rating.
+    User tags are merged into keywords and the note is appended to description.
     """
     cn = photo.primary_bird_cn or ""
     sci = photo.scientific_name or ""
     location = photo.location_tag or ""
     captured = photo.captured_date or ""
 
-    keywords = [k for k in (cn, sci, location) if k]
+    user_tags = getattr(photo, "tags", None) or []
+    keywords = [k for k in (cn, sci, location) if k] + [t for t in user_tags if t]
+
+    note = (getattr(photo, "note", None) or "").strip()
 
     title = " | ".join([p for p in (cn, sci) if p]) or "WingScribe Photo"
     description = " | ".join([p for p in (cn, sci, location, captured) if p]) or "WingScribe Photo"
+    if note:
+        description = f"{description}\n备注: {note}"
 
     pick = "1" if getattr(photo, "is_selected", False) else "0"
     rating = quality_score_to_rating(getattr(photo, "quality_score", None))

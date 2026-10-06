@@ -1,0 +1,75 @@
+        <div class="status-bar">
+            <span class="text-muted small">
+                显示 {{ offset + 1 }}-{{ offset + photos|length }} / 共 {{ total_count }} 张
+                {% if current_outing %} | 外拍：{{ current_outing.name }}（{{ current_outing.start_date }}）{% endif %}
+                {% if current_view %} | 视图：{{ current_view }} {% endif %}
+                {% if query %} | 搜索："{{ query }}" {% endif %}
+                {% if date_from or date_to %} | 日期：{{ date_from }} ~ {{ date_to }} {% endif %}
+                {% if selected_species %} | 鸟种：{{ selected_species|join('、') }} {% endif %}
+                {% if selected_families %} | 科：{{ selected_families|join('、') }} {% endif %}
+                {% if selected_orders %} | 目：{{ selected_orders|join('、') }} {% endif %}
+                {% if selected_level1 or selected_level2 or selected_level3 %}
+                    | 地点：{{ selected_level1|join('、') }} / {{ selected_level2|join('、') }} / {{ selected_level3|join('、') }}
+                {% endif %}
+                {% if selected_locations %} | 地点标签：{{ selected_locations|join('、') }} {% endif %}
+            </span>
+            <div class="d-flex align-items-center gap-3">
+                <div class="form-check form-switch mb-0" title="切换显示原图或裁切图">
+                    <input class="form-check-input" type="checkbox" id="showOriginalToggle">
+                    <label class="form-check-label small text-muted" for="showOriginalToggle">原图</label>
+                </div>
+                <div class="btn-group btn-group-sm">
+                    <a href="/gallery?{{ base_query }}&offset={{ prev_offset }}{% if current_view %}&view={{ current_view }}{% endif %}" class="btn btn-outline-secondary gallery-ajax-link {% if not has_prev %}disabled{% endif %}">上一页</a>
+                    <a href="/gallery?{{ base_query }}&offset={{ next_offset }}{% if current_view %}&view={{ current_view }}{% endif %}" class="btn btn-outline-secondary gallery-ajax-link {% if not has_next %}disabled{% endif %}">下一页</a>
+                </div>
+            </div>
+        </div>
+
+        {% if not photos %}
+        <div class="alert alert-info">暂无照片，请先在选片页面或管理任务中导入。</div>
+        {% endif %}
+
+        <div class="photo-grid">
+            {% for photo in photos %}
+            {% set is_uncertain = (photo.primary_bird_cn == '待确认鸟种' or photo.scientific_name == 'Uncertain') %}
+            {% set processed_path = photo.web_processed_path if photo.web_processed_path else '' %}
+            {% set raw_path = photo.web_raw_path if photo.web_raw_path else '' %}
+            <div class="photo-card" id="photo-card-{{ photo.id }}">
+                <div class="card h-100 shadow-sm {{ 'status-uncertain' if is_uncertain else '' }}" onclick="openPhotoDetail({{ photo.id }})" style="cursor: pointer;">
+                    <div class="position-relative">
+                        <div class="btn-group btn-group-sm position-absolute top-0 start-0 m-1" style="z-index: 10;" onclick="event.stopPropagation();">
+                            {% if processed_path %}<a href="{{ processed_path }}" download class="btn btn-dark btn-sm">裁切</a>{% endif %}
+                            {% if raw_path %}<a href="{{ raw_path }}" download class="btn btn-dark btn-sm">原图</a>{% endif %}
+                        </div>
+                        <img src="{{ processed_path if processed_path else raw_path }}" class="card-img-top photo-grid-img" alt="{{ photo.primary_bird_cn }}" loading="lazy" data-raw="{{ raw_path }}" data-processed="{{ processed_path }}">
+                    </div>
+                    <div class="card-body">
+                        <h5 class="card-title">
+                            {{ photo.primary_bird_cn }}
+                            {% if is_uncertain %}<span class="badge badge-uncertain small align-top">?</span>{% endif %}
+                        </h5>
+                        <h6 class="card-subtitle mb-2 text-muted fst-italic">{{ photo.scientific_name }}</h6>
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <span class="location-tag">📍 {{ photo.location_tag }}</span>
+                            <span class="badge bg-light text-dark border">{{ ((photo.confidence_score or 0) * 100)|int }}%</span>
+                        </div>
+                        <div class="path-info" title="{{ photo.filename }}">📁 {{ photo.filename }}</div>
+                        {% if photo.quality_score %}
+                        <div class="mt-2">
+                            <span class="badge bg-info text-dark">画质 {{ photo.quality_score|int }}</span>
+                        </div>
+                        {% endif %}
+                    </div>
+                    <div class="card-footer text-muted small">{{ photo.captured_date }}</div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+
+        <div class="d-flex justify-content-center mt-4 mb-5">
+            <div class="btn-group btn-group-sm">
+                <a href="/gallery?{{ base_query }}&offset={{ prev_offset }}{% if current_view %}&view={{ current_view }}{% endif %}" class="btn btn-outline-secondary gallery-ajax-link {% if not has_prev %}disabled{% endif %}">上一页</a>
+                <a href="/gallery?{{ base_query }}&offset={{ next_offset }}{% if current_view %}&view={{ current_view }}{% endif %}" class="btn btn-outline-secondary gallery-ajax-link {% if not has_next %}disabled{% endif %}">下一页</a>
+            </div>
+        </div>
+        <script id="galleryPhotosData" type="application/json">{{ photos | tojson }}</script>
