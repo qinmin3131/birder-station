@@ -37,6 +37,15 @@ data/birder.db
 # Trae workspace rules (may contain user-specific settings)
 .trae/
 
+# Trae Superpowers plugin working data
+.superpowers/
+
+# Temporary gallery debug pages / snippets
+gallery_debug.html
+gallery_order.html
+script_1.js
+script_order_1.js
+
 # Temporary GPU recognition test scripts
 scripts/test_gpu_recognition*.py
 
