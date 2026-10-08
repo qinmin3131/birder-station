@@ -36,6 +36,7 @@ data/birder.db
 
 # Trae workspace rules (may contain user-specific settings)
 .trae/
+.superpowers/
 
 # Temporary GPU recognition test scripts
 scripts/test_gpu_recognition*.py
