@@ -1,4 +1,4 @@
-# WingScribe Installer Build Guide
+# WingTrace Installer Build Guide
 
 本目录用于构建 Windows 安装包（CPU/GPU 双版本）。
 
@@ -31,7 +31,7 @@ powershell -ExecutionPolicy Bypass -File .\build.ps1 -Mode cpu -Version 1.0.0
 iscc .\installer.iss
 ```
 
-产物：`Output/WingScribe-Setup-CPU-<version>.exe`
+产物：`Output/WingTrace-Setup-CPU-<version>.exe`
 
 ### GPU
 
@@ -41,7 +41,7 @@ powershell -ExecutionPolicy Bypass -File .\build.ps1 -Mode gpu -Version 1.0.0
 iscc .\installer-gpu.iss
 ```
 
-产物：`Output/WingScribe-Setup-GPU-<version>.exe`
+产物：`Output/WingTrace-Setup-GPU-<version>.exe`
 
 ## 本地快速回归（强烈推荐）
 

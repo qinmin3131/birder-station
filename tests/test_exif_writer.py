@@ -288,7 +288,7 @@ class TestPhotoMetadataHelpers:
             is_selected=False,
         )
         tags = build_exif_tags_from_photo(photo)
-        assert tags["XMP:Title"] == "WingScribe Photo"
+        assert tags["XMP:Title"] == "WingTrace Photo"
         assert tags["XMP:Rating"] == 0
         assert tags["XMP:Pick"] == "0"
 

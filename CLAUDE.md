@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-WingScribe (飞羽志) is an automated bird photography management system that uses computer vision (YOLOv11) and multimodal AI models (BioCLIP) to automatically detect, filter, identify species, inject metadata, and organize bird photos into a hierarchical archive with a local web interface for manual verification.
+WingTrace (羽迹) is an automated bird photography management system that uses computer vision (YOLOv11) and multimodal AI models (BioCLIP) to automatically detect, filter, identify species, inject metadata, and organize bird photos into a hierarchical archive with a local web interface for manual verification.
 
 **Technology Stack:** Python 3.10+, PyTorch, YOLOv11, BioCLIP (OpenCLIP), FastAPI, SQLite, ExifTool
 

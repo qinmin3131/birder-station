@@ -2,7 +2,7 @@
 
 ## System Overview
 
-WingScribe is an automated pipeline for bird photography management. It bridges the gap between raw data ingestion and organized, searchable archives.
+WingTrace is an automated pipeline for bird photography management. It bridges the gap between raw data ingestion and organized, searchable archives.
 
 ### Core Components
 

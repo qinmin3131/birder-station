@@ -1,1 +1,1 @@
-"""SQLAlchemy data layer for Birder Station."""
+"""SQLAlchemy data layer for WingTrace."""

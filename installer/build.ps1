@@ -1,6 +1,6 @@
 #!/usr/bin/env pwsh
 #===============================================================================
-# WingScribe Installer Build Script
+# WingTrace Installer Build Script
 #===============================================================================
 # This script prepares all components for the Inno Setup installer
 
@@ -474,10 +474,10 @@ function Prepare-WindowsRuntimeDlls {
 }
 
 #===============================================================================
-# Step 5: Copy WingScribe source code
+# Step 5: Copy WingTrace source code
 #===============================================================================
 function Copy-SourceCode {
-    Log-Step "Copying WingScribe source code..."
+    Log-Step "Copying WingTrace source code..."
 
     $sourceDir = Join-Path $BUILD_DIR "src"
 
@@ -711,7 +711,7 @@ function Invoke-Build {
     $modeUpper = $Mode.ToUpper()
     Write-Host ""
     Write-Host "========================================" -ForegroundColor Cyan
-    Write-Host "  WingScribe $modeUpper Installer Build" -ForegroundColor Cyan
+    Write-Host "  WingTrace $modeUpper Installer Build" -ForegroundColor Cyan
     Write-Host "========================================" -ForegroundColor Cyan
     Write-Host ""
 
@@ -766,7 +766,7 @@ function Invoke-Build {
     } else {
         Write-Host "    2. Run: iscc installer\installer.iss" -ForegroundColor Gray
     }
-    Write-Host "    3. Output: installer\Output\WingScribe-Setup-$modeUpper.exe" -ForegroundColor Gray
+    Write-Host "    3. Output: installer\Output\WingTrace-Setup-$modeUpper.exe" -ForegroundColor Gray
     Write-Host ""
 }
 

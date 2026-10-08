@@ -45,7 +45,7 @@ REM Preflight check for PyTorch native runtime
 if errorlevel 1 (
     echo Error: PyTorch runtime check failed.
     echo Possible missing runtime dependency, for example libomp140.x86_64.dll.
-    echo Please reinstall WingScribe or install Microsoft Visual C++ Redistributable x64.
+    echo Please reinstall WingTrace or install Microsoft Visual C++ Redistributable x64.
     pause
     exit /b 1
 )
@@ -57,7 +57,7 @@ if "%SELFTEST%"=="1" (
 
 REM Run initialization script
 if exist "scripts\init_env.py" (
-    echo Initializing WingScribe environment...
+    echo Initializing WingTrace environment...
     "%PYTHON_EXE%" "%APP_ROOT%\scripts\init_env.py"
     if errorlevel 1 (
         echo Warning: Initialization had errors, continuing anyway...
@@ -67,12 +67,12 @@ if exist "scripts\init_env.py" (
 
 REM Start web server
 echo ========================================
-echo   WingScribe Web Server
+echo   WingTrace Web Server
 echo ========================================
 echo.
 echo Install dir: %APP_ROOT%
 echo.
-echo Starting WingScribe...
+echo Starting WingTrace...
 echo URL: http://localhost:8000
 echo Press Ctrl+C to stop
 echo.

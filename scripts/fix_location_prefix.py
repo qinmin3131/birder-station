@@ -104,7 +104,7 @@ def update_exif_for_photo(photo: dict, base_dir: Path, dry_run: bool = False) ->
         "ImageDescription": description,
         "XMP:Description": description,
         "XPTitle": description,
-        "IPTC:Keywords": [cn_name, location_tag, sci_name, "WingScribe"]
+        "IPTC:Keywords": [cn_name, location_tag, sci_name, "WingTrace"]
     }
 
     if dry_run:

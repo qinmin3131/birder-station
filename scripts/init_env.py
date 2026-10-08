@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-WingScribe Environment Initialization Script
+WingTrace Environment Initialization Script
 
-This script initializes the WingScribe environment by:
+This script initializes the WingTrace environment by:
 1. Creating necessary directories
 2. Initializing the database
 3. Checking and fixing configuration files
@@ -61,7 +61,7 @@ def init_app():
     app_root = script_dir.parent.resolve()
 
     print(f"App root: {app_root}")
-    print("Initializing WingScribe environment...")
+    print("Initializing WingTrace environment...")
 
     # 1. Load config to get base_dir
     settings_file = app_root / "config" / "settings.yaml"
@@ -147,7 +147,7 @@ def init_app():
             # Create minimal secrets file
             secrets_file.parent.mkdir(parents=True, exist_ok=True)
             with open(secrets_file, 'w', encoding='utf-8') as f:
-                f.write("# WingScribe secrets\nhf_api_key: \"\"\ndongniao_api_key: \"\"\n")
+                f.write("# WingTrace secrets\nhf_api_key: \"\"\ndongniao_api_key: \"\"\n")
             print(f"  OK: Created minimal secrets.yaml")
     else:
         print(f"  OK: secrets.yaml found")

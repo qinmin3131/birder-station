@@ -26,7 +26,7 @@ Write-Host "Compiling installer version: $version"
 
 # Compile CPU installer
 $cpuIss = Join-Path $INSTALLER_DIR "installer.iss"
-$cpuOutput = Join-Path $INSTALLER_DIR "Output\WingScribe-Setup-CPU-$version.exe"
+$cpuOutput = Join-Path $INSTALLER_DIR "Output\WingTrace-Setup-CPU-$version.exe"
 Write-Host "Compiling CPU installer..."
 $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
 if (-not (Test-Path $iscc)) {
@@ -36,7 +36,7 @@ if (-not (Test-Path $iscc)) {
 
 # Compile GPU installer
 $gpuIss = Join-Path $INSTALLER_DIR "installer-gpu.iss"
-$gpuOutput = Join-Path $INSTALLER_DIR "Output\WingScribe-Setup-GPU-$version.exe"
+$gpuOutput = Join-Path $INSTALLER_DIR "Output\WingTrace-Setup-GPU-$version.exe"
 Write-Host "Compiling GPU installer..."
 & $iscc /DAppVersion=$version $gpuIss
 

@@ -1,7 +1,7 @@
 [Setup]
-AppName=WingScribe Test
+AppName=WingTrace Test
 AppVersion=1.0
-DefaultDirName={userdocs}\WingScribe
+DefaultDirName={userdocs}\WingTrace
 OutputDir=Output
 OutputBaseFilename=test-setup
 

@@ -1,4 +1,4 @@
-# WingScribe CPU-only Dependencies
+# WingTrace CPU-only Dependencies
 # This file excludes torch (installed separately from wheels)
 # and testing dependencies to reduce installer size
 

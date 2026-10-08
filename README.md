@@ -1,9 +1,9 @@
-# WingScribe (飞羽志) - 智能鸟类摄影管理系统
+# WingTrace (羽迹) - 智能鸟类摄影管理系统
 
 **版本:** 2.0.0
 **状态:** 新版发布
 
-WingScribe 是一个专为鸟类摄影师打造的自动化管理流水线。它利用计算机视觉 (YOLOv11) 和多模态大模型 (BioCLIP) 技术，自动完成照片的**检测、筛选、物种识别、元数据注入**以及**层级归档**，并提供一个支持人工校对的本地 Web 界面。
+WingTrace 是一个专为鸟类摄影师打造的自动化管理流水线。它利用计算机视觉 (YOLOv11) 和多模态大模型 (BioCLIP) 技术，自动完成照片的**检测、筛选、物种识别、元数据注入**以及**层级归档**，并提供一个支持人工校对的本地 Web 界面。
 
 本项目是我个人的第一个从零开始完全使用Vibe Coding的项目，使用了Gemini CLI 、Claude Code with MiniMax2.5，作为一个观鸟爱好者，图片库的识别和整理一直是我的一大痛点，这个项目也算是圆了几年前的一个小梦想。
 
@@ -64,16 +64,16 @@ WingScribe 是一个专为鸟类摄影师打造的自动化管理流水线。它
 
 ### 📦 Windows 安装包 (推荐)
 
-WingScribe 提供 Windows 安装包，包含所有依赖，无需手动配置 Python 环境。
+WingTrace 提供 Windows 安装包，包含所有依赖，无需手动配置 Python 环境。
 
 #### 下载安装包
 
-从 [GitHub Releases](https://github.com/jiangyuyi/wingscribe/releases) 下载最新的 `WingScribe-Setup-x.x.x.exe`
+从 [GitHub Releases](https://github.com/jiangyuyi/wingscribe/releases) 下载最新的 `WingTrace-Setup-x.x.x.exe`
 
 #### 安装步骤
 
 1. 双击运行安装包
-2. 选择安装位置（默认：`C:\Users\用户名\WingScribe`）
+2. 选择安装位置（默认：`C:\Users\用户名\WingTrace`）
 3. 选择是否创建桌面快捷方式
 4. 等待安装完成（约 1-3 分钟）
 
@@ -90,14 +90,14 @@ WingScribe 提供 Windows 安装包，包含所有依赖，无需手动配置 Py
 安装完成后，有以下几种启动方式：
 
 **方式一：桌面快捷方式**
-- 双击桌面上的 "WingScribe" 图标
+- 双击桌面上的 "WingTrace" 图标
 
 **方式二：开始菜单**
-- 开始菜单 → WingScribe → WingScribe
+- 开始菜单 → WingTrace → WingTrace
 
 **方式三：命令行**
 ```powershell
-cd "C:\Users\用户名\WingScribe"
+cd "C:\Users\用户名\WingTrace"
 .\scripts\start_web.bat
 ```
 
@@ -119,7 +119,7 @@ cd "C:\Users\用户名\WingScribe"
 | YOLOv11 | 鸟类检测模型 |
 | BioCLIP | 鸟类识别模型（首次运行时下载） |
 | ExifTool | 元数据写入工具 |
-| WingScribe | 主程序和 Web 界面 |
+| WingTrace | 主程序和 Web 界面 |
 
 > **注意**: 安装包仅支持 CPU 模式，适合没有 NVIDIA 显卡的用户。如需 GPU 加速，请使用源码部署方式。
 
@@ -223,7 +223,7 @@ curl -fsSL https://raw.githubusercontent.com/jiangyuyi/wingscribe/master/deploy.
 
 ```
 ┌────────────────────────────────────────┐
-│     🪶 飞羽志 WingScribe 一键部署       │
+│       🪶 羽迹 WingTrace 一键部署        │
 ├────────────────────────────────────────┤
 │  [1] 🚀 开始部署                        │
 │  [2] ⚙️  配置选项                       │
@@ -247,7 +247,7 @@ curl -fsSL https://raw.githubusercontent.com/jiangyuyi/wingscribe/master/deploy.
 
 ### ☁️ 云平台配置
 
-WingScribe 支持多种云平台识别服务，无需本地 GPU 即可获得高质量识别结果。
+WingTrace 支持多种云平台识别服务，无需本地 GPU 即可获得高质量识别结果。
 
 #### 支持的云平台
 
@@ -417,7 +417,7 @@ python -m pytest tests/ --cov=src --cov-report=html
 
 ### 2. 配置
 
-WingScribe 使用 YAML 进行配置。
+WingTrace 使用 YAML 进行配置。
 
 1. **主设置**: 编辑 `config/settings.yaml` 来定义您的照片源路径和输出结构。
 2. **密钥**: 如果使用云端 API，请编辑 `config/secrets.yaml` 填入您的 API Key：
@@ -468,7 +468,7 @@ WingScribe 使用 YAML 进行配置。
 
 ### 3. 路径配置
 
-WingScribe 使用**绝对路径**配置照片源目录和输出目录。
+WingTrace 使用**绝对路径**配置照片源目录和输出目录。
 
 **配置示例:**
 
@@ -497,7 +497,7 @@ paths:
 
 ### 4. 数据库配置与备份
 
-WingScribe 使用 SQLite 数据库，默认存储在运行目录下。建议将数据库放在本地以获得最佳性能，并将备份保存到 NAS。
+WingTrace 使用 SQLite 数据库，默认存储在运行目录下。建议将数据库放在本地以获得最佳性能，并将备份保存到 NAS。
 
 #### 4.1 数据库路径配置
 
@@ -522,7 +522,7 @@ paths:
 .\scripts\backup_db.ps1 -Source "data\db\wingscribe.db" -Destination "Y:\备份\wingscribe"
 
 # 设置定时任务（每天凌晨 3 点）
-schtasks /create /tn "WingScribe Backup" /tr "powershell -File C:\path\to\scripts\backup_db.ps1 -Destination Y:\备份\wingscribe" /sc daily /st 03:00
+schtasks /create /tn "WingTrace Backup" /tr "powershell -File C:\path\to\scripts\backup_db.ps1 -Destination Y:\备份\wingtrace" /sc daily /st 03:00
 ```
 
 **Linux/macOS:**
@@ -555,7 +555,7 @@ crontab -e
 
 ### 6. Web 配置页面
 
-WingScribe 提供了基于 Web 的图形化配置页面，方便用户管理系统设置。
+WingTrace 提供了基于 Web 的图形化配置页面，方便用户管理系统设置。
 
 #### 访问配置页面
 

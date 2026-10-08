@@ -1,6 +1,6 @@
-# WingScribe 配置指南
+# WingTrace 配置指南
 
-本文档详细介绍了 WingScribe 的各项配置选项。系统主要使用 `config/` 目录下的两个 YAML 文件进行配置：
+本文档详细介绍了 WingTrace 的各项配置选项。系统主要使用 `config/` 目录下的两个 YAML 文件进行配置：
 
 1.  `settings.yaml`: 主配置文件，包含路径、处理逻辑和应用行为设置。
 2.  `secrets.yaml`: 安全配置文件，用于存储 API 密钥（此文件不会被 Git 追踪）。
@@ -11,7 +11,7 @@
 
 ### A. 路径配置 (`paths`)
 
-控制 WingScribe 从哪里读取图片以及将结果保存到何处。
+控制 WingTrace 从哪里读取图片以及将结果保存到何处。
 
 **重要变更**：自某个版本起，路径配置进行了简化：
 - `sources.path` 和 `output.root_dir` 使用**绝对路径**
@@ -238,7 +238,7 @@ web:
 
 ## 5. Web 配置页面
 
- WingScribe 提供了 Web 配置界面，您可以通过以下方式访问：
+ WingTrace 提供了 Web 配置界面，您可以通过以下方式访问：
 
 - 地址：`http://localhost:8000`（如果端口为 8000）
 - 进入「设置」页面可以修改配置

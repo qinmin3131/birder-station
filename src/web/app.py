@@ -587,7 +587,7 @@ def update_label(req: UpdateLabelRequest):
         original_path = photo.get('original_path')
         if original_path and os.path.exists(original_path):
             source_tags = tags.copy()
-            source_tags["IPTC:Keywords"] = source_tags["IPTC:Keywords"] + ["WingScribe"]
+            source_tags["IPTC:Keywords"] = source_tags["IPTC:Keywords"] + ["WingTrace"]
             if not exif_writer.write_metadata(original_path, source_tags):
                 raise RuntimeError("Failed to update metadata for original image")
 
@@ -2277,7 +2277,7 @@ if __name__ == "__main__":
     import subprocess
     import time
 
-    parser = argparse.ArgumentParser(description='WingScribe Web Server')
+    parser = argparse.ArgumentParser(description='WingTrace Web Server')
     parser.add_argument('--host', type=str, default=None, help='Host to bind to')
     parser.add_argument('--port', type=int, default=None, help='Port to bind to')
     args = parser.parse_args()

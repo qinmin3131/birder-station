@@ -1,5 +1,5 @@
-# WingScribe Web Server Launcher (PowerShell)
-# This script starts the WingScribe web interface
+# WingTrace Web Server Launcher (PowerShell)
+# This script starts the WingTrace web interface
 
 $ErrorActionPreference = "Stop"
 
@@ -31,7 +31,7 @@ try {
 } catch {
     Write-Host "Error: PyTorch runtime check failed." -ForegroundColor Red
     Write-Host "Possible missing runtime dependency (e.g. libomp140.x86_64.dll)." -ForegroundColor Yellow
-    Write-Host "Please reinstall WingScribe or install Microsoft Visual C++ Redistributable (x64)." -ForegroundColor Yellow
+    Write-Host "Please reinstall WingTrace or install Microsoft Visual C++ Redistributable (x64)." -ForegroundColor Yellow
     Read-Host "Press Enter to exit"
     exit 1
 }
@@ -54,10 +54,10 @@ Set-Location $AppRoot
 # Start the web server
 Write-Host ""
 Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "  WingScribe Web Server" -ForegroundColor Cyan
+Write-Host "  WingTrace Web Server" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "Starting WingScribe Web Server..." -ForegroundColor Green
+Write-Host "Starting WingTrace Web Server..." -ForegroundColor Green
 Write-Host "URL: http://localhost:8000" -ForegroundColor White
 Write-Host "Press Ctrl+C to stop" -ForegroundColor Gray
 Write-Host ""

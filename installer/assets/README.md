@@ -43,7 +43,7 @@ The installer will still work correctly.
 
 ## Example Icon
 
-You can use the WingScribe logo if available:
-- WingScribe logo should be converted to ICO format
+You can use the WingTrace logo if available:
+- WingTrace logo should be converted to ICO format
 - Use a bird silhouette or feather design
 - Consider using a stylized "WS" monogram

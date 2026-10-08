@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-WingScribe TUI 主界面
+WingTrace TUI 主界面
 
 使用 rich 和 questionary 库提供交互式终端界面。
 """
@@ -38,7 +38,7 @@ def print_header():
     """打印标题"""
     console.clear()
     title = Text()
-    title.append("🪶 WingScribe\n", style="bold cyan")
+    title.append("🪶 WingTrace\n", style="bold cyan")
     title.append("  AI 驱动的鸟类照片智能管理系统", style="italic white")
     console.print(Panel(title, style="cyan", subtitle="按 q 退出"))
 
@@ -123,7 +123,7 @@ def show_help():
     """显示帮助信息"""
     console.clear()
     help_text = """
-[bold cyan]📖 飞羽志使用帮助[/]
+[bold cyan]📖 羽迹使用帮助[/]
 
 [bold]功能介绍:[/]
   • YOLOv8 鸟类检测 - 自动识别照片中的鸟类
@@ -360,7 +360,7 @@ def main():
             elif choice == "6":
                 show_help()
             elif choice == "7" or choice.lower() == "q":
-                console.print("\n[cyan]感谢使用飞羽志！再见！[/]\n")
+                console.print("\n[cyan]感谢使用羽迹！再见！[/]\n")
                 break
 
             if choice not in ["6", "7"]:

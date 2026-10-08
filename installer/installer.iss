@@ -1,21 +1,21 @@
 ﻿; WingScribe CPU Installer Script
 ; Version for systems without NVIDIA GPU
 
-#define AppName "WingScribe"
+#define AppName "WingTrace"
 #ifndef AppVersion
   #define AppVersion "1.0.0"
 #endif
-#define AppPublisher "WingScribe Project"
+#define AppPublisher "WingTrace Project"
 #define AppExeName "start_web.bat"
 
 [Setup]
 AppName={#AppName}
 AppVersion={#AppVersion}
 AppPublisher={#AppPublisher}
-DefaultDirName={userdocs}\WingScribe
+DefaultDirName={userdocs}\WingTrace
 DefaultGroupName={#AppName}
 OutputDir=Output
-OutputBaseFilename=WingScribe-Setup-CPU-{#AppVersion}
+OutputBaseFilename=WingTrace-Setup-CPU-{#AppVersion}
 Compression=lzma2
 SolidCompression=yes
 AllowNoIcons=yes
@@ -42,7 +42,7 @@ Name: "desktop"; Description: "Create desktop shortcut"; GroupDescription: "Addi
 ; Embedded Python runtime with pre-installed packages (CPU version)
 Source: "build-cpu\python\*"; DestDir: "{app}\python"; Flags: ignoreversion recursesubdirs createallsubdirs; Components: main
 
-; WingScribe source code
+; WingTrace source code
 Source: "build-cpu\src\*"; DestDir: "{app}\src"; Flags: ignoreversion recursesubdirs createallsubdirs; Components: main
 Source: "build-cpu\config\*"; DestDir: "{app}\config"; Flags: ignoreversion recursesubdirs createallsubdirs; Components: main
 Source: "build-cpu\scripts\*"; DestDir: "{app}\scripts"; Flags: ignoreversion recursesubdirs createallsubdirs; Components: main
@@ -73,17 +73,17 @@ Name: "{app}\data\references"
 
 [Icons]
 ; Start menu
-Name: "{group}\WingScribe"; Filename: "{app}\scripts\start_web.bat"; WorkingDir: {app}; IconFilename: "{app}\src\web\static\favicon.ico"
+Name: "{group}\WingTrace"; Filename: "{app}\scripts\start_web.bat"; WorkingDir: {app}; IconFilename: "{app}\src\web\static\favicon.ico"
 Name: "{group}\Configuration Guide"; Filename: "{app}\scripts\start_web.bat"; Parameters: "--config-guide"; WorkingDir: {app}; IconFilename: "{app}\src\web\static\favicon.ico"
-Name: "{group}\Uninstall WingScribe"; Filename: "{uninstallexe}"
+Name: "{group}\Uninstall WingTrace"; Filename: "{uninstallexe}"
 
 ; Desktop shortcut
-Name: "{autodesktop}\WingScribe"; Filename: "{app}\scripts\start_web.bat"; WorkingDir: {app}; Tasks: desktop; IconFilename: "{app}\src\web\static\favicon.ico"
+Name: "{autodesktop}\WingTrace"; Filename: "{app}\scripts\start_web.bat"; WorkingDir: {app}; Tasks: desktop; IconFilename: "{app}\src\web\static\favicon.ico"
 
 [Run]
 ; Launch web server after installation
 ; User will be directed to the web-based configuration page on first visit
-Filename: "{app}\scripts\start_web.bat"; Description: "Launch WingScribe Web Service"; StatusMsg: "Starting Web service..."; Flags: nowait postinstall skipifsilent
+Filename: "{app}\scripts\start_web.bat"; Description: "Launch WingTrace Web Service"; StatusMsg: "Starting Web service..."; Flags: nowait postinstall skipifsilent
 
 [UninstallDelete]
 ; Delete all application files and user data
@@ -92,4 +92,3 @@ Type: filesandordirs; Name: "{app}\config"
 Type: filesandordirs; Name: "{app}\scripts"
 Type: filesandordirs; Name: "{app}\tools"
 Type: filesandordirs; Name: "{app}\data"
-

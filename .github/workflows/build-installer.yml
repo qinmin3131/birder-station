@@ -111,7 +111,7 @@ jobs:
         run: |
           $modeUpper = "${{ matrix.mode }}".ToUpper()
           $version = "${{ steps.get_version.outputs.version }}"
-          $installer = Get-Item "installer/Output/WingScribe-Setup-$modeUpper-$version.exe"
+          $installer = Get-Item "installer/Output/WingTrace-Setup-$modeUpper-$version.exe"
           $sizeInMB = [math]::Round($installer.Length / 1MB, 2)
           Write-Host "Installer size: $sizeInMB MB"
 
@@ -119,16 +119,16 @@ jobs:
         if: matrix.mode == 'cpu'
         uses: actions/upload-artifact@v4
         with:
-          name: WingScribe-Installer-${{ steps.get_version.outputs.version }}-${{ matrix.mode }}
-          path: installer/Output/WingScribe-Setup-CPU-${{ steps.get_version.outputs.version }}.exe
+          name: WingTrace-Installer-${{ steps.get_version.outputs.version }}-${{ matrix.mode }}
+          path: installer/Output/WingTrace-Setup-CPU-${{ steps.get_version.outputs.version }}.exe
           retention-days: 30
 
       - name: Upload GPU installer artifact
         if: matrix.mode == 'gpu'
         uses: actions/upload-artifact@v4
         with:
-          name: WingScribe-Installer-${{ steps.get_version.outputs.version }}-${{ matrix.mode }}
-          path: installer/Output/WingScribe-Setup-GPU-${{ steps.get_version.outputs.version }}.exe
+          name: WingTrace-Installer-${{ steps.get_version.outputs.version }}-${{ matrix.mode }}
+          path: installer/Output/WingTrace-Setup-GPU-${{ steps.get_version.outputs.version }}.exe
           retention-days: 30
 
   release:
@@ -175,22 +175,22 @@ jobs:
         with:
           tag_name: v${{ steps.get_version.outputs.version }}
           files: |
-            artifacts/**/WingScribe-Setup-CPU-${{ steps.get_version.outputs.version }}.exe
-            artifacts/**/WingScribe-Setup-GPU-${{ steps.get_version.outputs.version }}.exe
+            artifacts/**/WingTrace-Setup-CPU-${{ steps.get_version.outputs.version }}.exe
+            artifacts/**/WingTrace-Setup-GPU-${{ steps.get_version.outputs.version }}.exe
           draft: false
           prerelease: false
           body: |
-            ## WingScribe ${{ steps.get_version.outputs.version }}
+            ## WingTrace ${{ steps.get_version.outputs.version }}
 
             ### 下载安装包
 
             根据您的硬件选择对应的安装包：
 
-            - **CPU 版本**: `WingScribe-Setup-CPU-${{ steps.get_version.outputs.version }}.exe`
+            - **CPU 版本**: `WingTrace-Setup-CPU-${{ steps.get_version.outputs.version }}.exe`
               - 适用于没有 NVIDIA 显卡或不需要 GPU 加速的用户
               - 使用 CPU 进行 AI 推理，速度较慢但兼容性好
 
-            - **GPU 版本**: `WingScribe-Setup-GPU-${{ steps.get_version.outputs.version }}.exe`
+            - **GPU 版本**: `WingTrace-Setup-GPU-${{ steps.get_version.outputs.version }}.exe`
               - 需要 NVIDIA 显卡（支持 CUDA）
               - 使用 GPU 进行 AI 推理，速度更快
 
@@ -233,6 +233,6 @@ jobs:
           Write-Host "## Build Summary" >> $env:GITHUB_STEP_SUMMARY
           Write-Host "" >> $env:GITHUB_STEP_SUMMARY
           Write-Host "- **Version**: ${{ steps.get_version.outputs.version }}" >> $env:GITHUB_STEP_SUMMARY
-          Write-Host "- **CPU Installer**: artifacts/**/WingScribe-Setup-CPU-${{ steps.get_version.outputs.version }}.exe" >> $env:GITHUB_STEP_SUMMARY
-          Write-Host "- **GPU Installer**: artifacts/**/WingScribe-Setup-GPU-${{ steps.get_version.outputs.version }}.exe" >> $env:GITHUB_STEP_SUMMARY
+          Write-Host "- **CPU Installer**: artifacts/**/WingTrace-Setup-CPU-${{ steps.get_version.outputs.version }}.exe" >> $env:GITHUB_STEP_SUMMARY
+          Write-Host "- **GPU Installer**: artifacts/**/WingTrace-Setup-GPU-${{ steps.get_version.outputs.version }}.exe" >> $env:GITHUB_STEP_SUMMARY
           Write-Host "- **Status**: ${{ job.status }}" >> $env:GITHUB_STEP_SUMMARY

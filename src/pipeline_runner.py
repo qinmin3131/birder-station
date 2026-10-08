@@ -589,10 +589,10 @@ class WingScribePipeline:
             
             if is_low_conf:
                 description = "Uncertain Bird (Low Confidence)"
-                keywords = ["WingScribe", "LowConfidence", meta.get('location_tag')]
+                keywords = ["WingTrace", "LowConfidence", meta.get('location_tag')]
             else:
                 description = f"{cn_name} ({sci_name})"
-                keywords = [cn_name, sci_name, meta.get('location_tag'), "WingScribe"]
+                keywords = [cn_name, sci_name, meta.get('location_tag'), "WingTrace"]
 
             # Filter out None values from keywords
             keywords = [k for k in keywords if k is not None]
@@ -1317,7 +1317,7 @@ class WingScribePipeline:
 
 if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser(description="Run WingScribe pipeline")
+    parser = argparse.ArgumentParser(description="Run WingTrace pipeline")
     parser.add_argument("--config", default="config/settings.yaml", help="Path to settings YAML")
     args = parser.parse_args()
 

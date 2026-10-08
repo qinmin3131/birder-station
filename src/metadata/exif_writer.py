@@ -451,8 +451,8 @@ def build_exif_tags_from_photo(photo: Any) -> Dict[str, Any]:
 
     keywords = [k for k in (cn, sci, location) if k]
 
-    title = " | ".join([p for p in (cn, sci) if p]) or "WingScribe Photo"
-    description = " | ".join([p for p in (cn, sci, location, captured) if p]) or "WingScribe Photo"
+    title = " | ".join([p for p in (cn, sci) if p]) or "WingTrace Photo"
+    description = " | ".join([p for p in (cn, sci, location, captured) if p]) or "WingTrace Photo"
 
     pick = "1" if getattr(photo, "is_selected", False) else "0"
     rating = quality_score_to_rating(getattr(photo, "quality_score", None))

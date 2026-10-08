@@ -1,4 +1,4 @@
-# WingScribe Database Backup Script (Windows PowerShell)
+# WingTrace Database Backup Script (Windows PowerShell)
 # ============================================================
 #
 # Usage: Backup SQLite database safely using Python sqlite3 module
@@ -12,7 +12,7 @@
 #   -KeepDays    Number of days to keep backups (default: 7)
 #
 # Schedule as daily task (3 AM):
-#   schtasks /create /tn "WingScribe Backup" /tr "powershell -File C:\path\to\scripts\backup_db.ps1" /sc daily /st 03:00
+#   schtasks /create /tn "WingTrace Backup" /tr "powershell -File C:\path\to\scripts\backup_db.ps1" /sc daily /st 03:00
 #
 # ============================================================
 

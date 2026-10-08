@@ -1,4 +1,4 @@
-# WingScribe GPU Dependencies
+# WingTrace GPU Dependencies
 # This file is for NVIDIA GPU systems with CUDA support
 # Requires NVIDIA GPU with CUDA driver installed
 
