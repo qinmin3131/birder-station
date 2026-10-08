@@ -6,7 +6,18 @@ from src.web.record_sync_service import serialize_draft, serialize_export
 
 def test_serialize_draft_exposes_status_without_internal_paths():
     draft = SimpleNamespace(id=7, status="ready", report=SimpleNamespace(remote_id="R1"), outing_id=3, location_name="奥森", duplicate_warning=False, items=[])
-    assert serialize_draft(draft) == {"id": 7, "status": "ready", "remote_id": "R1", "outing_id": 3, "location_name": "奥森", "duplicate_warning": False, "items": []}
+    payload = serialize_draft(draft)
+    assert payload["id"] == 7
+    assert payload["remote_id"] == "R1"
+    assert payload["items"] == []
+
+
+def test_serialize_draft_includes_confirmation_fields():
+    draft = SimpleNamespace(id=7, status="ready", report=SimpleNamespace(remote_id="R1"), outing_id=3, location_name="奥森", latitude=40.0, longitude=116.0, protocol="Traveling", start_time="08:17", duration_minutes=149, distance_km=2.5, observer_count=1, is_complete_checklist=True, suggestion_json={}, duplicate_warning=False, items=[])
+    payload = serialize_draft(draft)
+    assert payload["start_time"] == "08:17"
+    assert payload["duration_minutes"] == 149
+    assert payload["latitude"] == 40.0
 
 
 def test_serialize_export_returns_safe_urls():

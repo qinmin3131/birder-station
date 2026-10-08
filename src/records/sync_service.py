@@ -9,7 +9,9 @@ from src.db.models import (
     EBirdItemSource,
     EBirdSyncDraft,
     EBirdSyncItem,
+    Photo,
 )
+from src.records.matching import derive_effort_from_photos
 
 
 class RecordSyncError(Exception):
@@ -86,6 +88,35 @@ class RecordSyncService:
                 included=True,
                 mapping_status="mapped" if species.get("scientific_name") else "needs_confirmation",
             ))
+        if outing_id is not None:
+            photos = self.session.query(Photo).filter(Photo.outing_id == outing_id).all()
+            remote_keys = {
+                value for item in draft.items for value in (item.scientific_name, item.birdreport_name) if value
+            }
+            local_seen = set()
+            for photo in photos:
+                key = photo.scientific_name or photo.primary_bird_cn
+                if not key or key in remote_keys or key in local_seen:
+                    continue
+                local_seen.add(key)
+                draft.items.append(EBirdSyncItem(
+                    source=EBirdItemSource.LOCAL_SUPPLEMENT.value,
+                    local_name=photo.primary_bird_cn,
+                    scientific_name=photo.scientific_name,
+                    count_value="X",
+                    included=False,
+                    mapping_status="needs_confirmation",
+                    evidence_json={"photo_id": photo.id},
+                ))
+            effort = derive_effort_from_photos(photos)
+            draft.start_time = effort.start_time.strftime("%H:%M") if effort.start_time else None
+            draft.duration_minutes = effort.duration_minutes
+            draft.suggestion_json = {
+                "photo_count": effort.source_photo_count,
+                "warnings": list(effort.warnings),
+                "errors": list(effort.errors),
+                "split_recommended": effort.split_recommended,
+            }
         self.session.add(draft)
         self.session.commit()
         return draft
