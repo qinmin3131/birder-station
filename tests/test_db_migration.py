@@ -66,3 +66,17 @@ def test_init_database_creates_new_schema_when_empty():
     assert inspector.has_table("species")
     assert inspector.has_table("outings")
     assert inspector.has_table("photo_groups")
+
+
+def test_init_database_is_idempotent_for_ebird_tables(tmp_path):
+    engine = create_engine(f"sqlite:///{tmp_path / 'db.sqlite'}")
+
+    init_database(engine)
+    init_database(engine)
+
+    assert {
+        "birdreport_reports",
+        "ebird_sync_drafts",
+        "ebird_sync_items",
+        "ebird_export_batches",
+    } <= set(inspect(engine).get_table_names())
