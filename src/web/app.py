@@ -35,7 +35,7 @@ from src.utils.config_loader import load_config, validate_paths_config
 from src.core.io.path_generator import PathGenerator
 from src.core.indexer import PhotoIndexer
 from src.core.trash_service import TrashService
-from src.db.models import init_database as init_sqlalchemy_db, Photo, Species, PhotoGroup, Outing
+from src.db.models import init_database as init_sqlalchemy_db, Photo, Species, PhotoGroup, Outing, BirdReportReport, EBirdExportBatch
 from src.db.repository import PhotoRepository, OutingRepository
 from src.db.stats import refresh_species_for_photo
 from src.web.routes.recognition import router as recognition_router
@@ -52,6 +52,12 @@ from src.web.config_helpers import (
 )
 from src.web import path_helpers
 from src.web import config_service
+from src.records.birdreport_client import BirdReportClient, BirdReportError
+from src.records.secrets import load_birdreport_token
+from src.records.sync_service import RecordSyncService, RecordSyncError
+from src.records.matching import rank_report_candidates
+from src.records.ebird_export import export_draft, EBirdExportError
+from src.web.record_sync_service import serialize_draft, serialize_export
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -219,6 +225,24 @@ class StartPipelineByFoldersRequest(BaseModel):
 class IndexRequest(BaseModel):
     folder: str
     recursive: bool = True
+
+
+class PullBirdReportRequest(BaseModel):
+    date_from: str
+    date_to: str
+
+
+class CreateEBirdDraftRequest(BaseModel):
+    remote_id: str
+    outing_id: Optional[int] = None
+
+
+class UpdateEBirdDraftRequest(BaseModel):
+    values: Dict[str, Any]
+
+
+class MarkUploadedRequest(BaseModel):
+    checklist_id: Optional[str] = None
 
 # --- Routes ---
 
@@ -1911,6 +1935,98 @@ def api_birding_log_years():
     except Exception as e:
         logger.error(f"Failed to fetch birding log years: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        session.close()
+
+
+def _birdreport_client():
+    base_url = config.get("birdreport", {}).get("base_url", "https://api.birdreport.cn")
+    return BirdReportClient(base_url, lambda: load_birdreport_token(BASE_DIR))
+
+
+@app.post("/api/records/pull")
+def pull_birdreport_records(req: PullBirdReportRequest):
+    session = get_sqlalchemy_session()
+    try:
+        stored = RecordSyncService(session).upsert_reports(_birdreport_client().fetch_reports(req.date_from, req.date_to))
+        return {"status": "success", "report_count": len(stored)}
+    except BirdReportError as exc:
+        raise HTTPException(status_code=401 if exc.category == "auth" else 502, detail=str(exc))
+    finally:
+        session.close()
+
+
+@app.get("/api/records/candidates")
+def birdreport_candidates(outing_id: int):
+    session = get_sqlalchemy_session()
+    try:
+        outing = session.get(Outing, outing_id)
+        if not outing:
+            raise HTTPException(status_code=404, detail="找不到外拍记录")
+        rows = session.query(BirdReportReport).filter(BirdReportReport.observed_on == outing.start_date).all()
+        reports = [type("Report", (), {"remote_id": row.remote_id, "observed_on": row.observed_on, "location_name": row.location_name or "", "latitude": row.latitude, "longitude": row.longitude})() for row in rows]
+        ranked = rank_report_candidates(outing, reports)
+        return {"candidates": [{"remote_id": item.remote_id, "score": item.score, "reasons": item.reasons} for item in ranked]}
+    finally:
+        session.close()
+
+
+@app.post("/api/ebird/drafts")
+def create_ebird_draft(req: CreateEBirdDraftRequest):
+    session = get_sqlalchemy_session()
+    try:
+        return serialize_draft(RecordSyncService(session).bind_report(req.outing_id, req.remote_id))
+    except RecordSyncError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    finally:
+        session.close()
+
+
+@app.patch("/api/ebird/drafts/{draft_id}")
+def update_ebird_draft(draft_id: int, req: UpdateEBirdDraftRequest):
+    session = get_sqlalchemy_session()
+    try:
+        return serialize_draft(RecordSyncService(session).update_draft(draft_id, req.values))
+    except RecordSyncError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    finally:
+        session.close()
+
+
+@app.post("/api/ebird/drafts/{draft_id}/export")
+def export_ebird_draft(draft_id: int):
+    session = get_sqlalchemy_session()
+    try:
+        return serialize_export(export_draft(session, draft_id, BASE_DIR / "data" / "exports" / "ebird"))
+    except EBirdExportError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    finally:
+        session.close()
+
+
+@app.post("/api/ebird/drafts/{draft_id}/uploaded")
+def mark_ebird_uploaded(draft_id: int, req: MarkUploadedRequest):
+    session = get_sqlalchemy_session()
+    try:
+        return serialize_draft(RecordSyncService(session).mark_uploaded(draft_id, req.checklist_id))
+    except RecordSyncError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    finally:
+        session.close()
+
+
+@app.get("/api/ebird/exports/{batch_id}")
+def download_ebird_export(batch_id: int):
+    session = get_sqlalchemy_session()
+    try:
+        batch = session.get(EBirdExportBatch, batch_id)
+        if not batch:
+            raise HTTPException(status_code=404, detail="找不到导出文件")
+        root = (BASE_DIR / "data" / "exports" / "ebird").resolve()
+        path = Path(batch.file_path).resolve()
+        if not path.is_relative_to(root) or not path.is_file():
+            raise HTTPException(status_code=404, detail="导出文件不存在")
+        return FileResponse(path, filename=batch.filename, media_type="text/csv; charset=utf-8")
     finally:
         session.close()
 
