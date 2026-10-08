@@ -170,6 +170,19 @@
                 <div id="advancedConfig" class="config-section advanced-section"></div>
             </form>
 
+            <div class="config-section pb-4" id="birdreportSettings">
+                <div class="section-title"><i class="bi bi-journal-check"></i> 中国观鸟记录中心</div>
+                <div class="config-item">
+                    <label for="birdreportToken">X-Auth-Token</label>
+                    <input id="birdreportToken" type="password" class="form-control" autocomplete="off" placeholder="粘贴新的 Token；已保存的值不会显示">
+                    <div class="description">Token 仅写入本机 config/secrets.yaml。重新登录记录中心后可能需要更新。</div>
+                    <div id="birdreportStatus" class="path-status mt-2">正在读取状态…</div>
+                </div>
+                <button type="button" class="btn btn-primary btn-sm" onclick="saveBirdreportToken()">保存并测试</button>
+                <button type="button" class="btn btn-outline-primary btn-sm" onclick="testBirdreportToken()">测试连接</button>
+                <button type="button" class="btn btn-outline-danger btn-sm" onclick="clearBirdreportToken()">清除 Token</button>
+            </div>
+
             <div class="config-actions">
                 <div></div>
                 <div>
@@ -213,6 +226,7 @@
         // Load configuration on page load
         document.addEventListener('DOMContentLoaded', async function() {
             await loadConfig();
+            await loadBirdreportStatus();
         });
 
         async function loadConfig() {
@@ -638,6 +652,33 @@
             // Show first-run welcome message
             const header = document.querySelector('.config-header .subtitle');
             header.innerHTML = '欢迎使用 WingScribe！请完成基本配置以开始使用。';
+        }
+
+        async function loadBirdreportStatus() {
+            const data = await (await fetch('/api/settings/birdreport/status')).json();
+            const el = document.getElementById('birdreportStatus');
+            el.textContent = data.configured ? `已保存${data.username ? ' · ' + data.username : ''}` : '未配置';
+            el.className = `path-status mt-2 ${data.configured ? 'valid' : 'invalid'}`;
+        }
+
+        async function saveBirdreportToken() {
+            const input = document.getElementById('birdreportToken');
+            const response = await fetch('/api/settings/birdreport/token', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({token: input.value, test: true})});
+            input.value = '';
+            if (!response.ok) return showToast('连接失败', (await response.json()).detail || 'Token 无效', 'danger');
+            await loadBirdreportStatus(); showToast('保存成功', 'Token 已保存并通过连接测试', 'success');
+        }
+
+        async function testBirdreportToken() {
+            const response = await fetch('/api/settings/birdreport/test', {method: 'POST'});
+            if (!response.ok) return showToast('连接失败', (await response.json()).detail || 'Token 无效', 'danger');
+            await loadBirdreportStatus(); showToast('连接成功', '观鸟记录中心 Token 有效', 'success');
+        }
+
+        async function clearBirdreportToken() {
+            await fetch('/api/settings/birdreport/token', {method: 'DELETE'});
+            document.getElementById('birdreportToken').value = '';
+            await loadBirdreportStatus(); showToast('已清除', '本机 Token 已删除', 'info');
         }
     </script>
 </body>

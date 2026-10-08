@@ -58,6 +58,7 @@ from src.records.sync_service import RecordSyncService, RecordSyncError
 from src.records.matching import rank_report_candidates
 from src.records.ebird_export import export_draft, EBirdExportError
 from src.web.record_sync_service import serialize_draft, serialize_export
+from src.web.birdreport_settings_service import BirdReportSettingsService
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -243,6 +244,11 @@ class UpdateEBirdDraftRequest(BaseModel):
 
 class MarkUploadedRequest(BaseModel):
     checklist_id: Optional[str] = None
+
+
+class BirdReportTokenRequest(BaseModel):
+    token: str
+    test: bool = True
 
 # --- Routes ---
 
@@ -1942,6 +1948,36 @@ def api_birding_log_years():
 def _birdreport_client():
     base_url = config.get("birdreport", {}).get("base_url", "https://api.birdreport.cn")
     return BirdReportClient(base_url, lambda: load_birdreport_token(BASE_DIR))
+
+
+def _birdreport_settings():
+    return BirdReportSettingsService(BASE_DIR, _birdreport_client)
+
+
+@app.get("/api/settings/birdreport/status")
+def birdreport_settings_status():
+    return _birdreport_settings().status()
+
+
+@app.post("/api/settings/birdreport/token")
+def save_birdreport_settings(req: BirdReportTokenRequest):
+    try:
+        return _birdreport_settings().save(req.token, req.test)
+    except BirdReportError as exc:
+        raise HTTPException(status_code=401 if exc.category == "auth" else 502, detail=str(exc))
+
+
+@app.post("/api/settings/birdreport/test")
+def test_birdreport_settings():
+    try:
+        return _birdreport_settings().test()
+    except BirdReportError as exc:
+        raise HTTPException(status_code=401 if exc.category == "auth" else 502, detail=str(exc))
+
+
+@app.delete("/api/settings/birdreport/token")
+def clear_birdreport_settings():
+    return _birdreport_settings().clear()
 
 
 @app.post("/api/records/pull")
