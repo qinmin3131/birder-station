@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>导入照片 - 飞羽志 WingScribe</title>
+    <title>导入素材 - 飞羽志 WingScribe</title>
     <link rel="icon" type="image/x-icon" href="/lib/favicon.ico">
     <link href="/lib/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.bootcdn.net/ajax/libs/bootstrap-icons/1.11.3/font/bootstrap-icons.min.css">
@@ -33,7 +33,7 @@
 
     <div class="container mt-4 mb-5">
         <div class="d-flex justify-content-between align-items-center mb-4">
-            <h4 class="mb-0 fw-bold">📥 导入照片</h4>
+            <h4 class="mb-0 fw-bold">📥 导入素材</h4>
             <a href="/admin" class="btn btn-sm btn-outline-secondary">查看任务管理器</a>
         </div>
 
@@ -86,28 +86,34 @@
 
                     <div id="scan-result" class="d-none">
                         <div class="row g-3 mb-4">
-                            <div class="col-md-3">
+                            <div class="col-6 col-lg">
                                 <div class="stat-card">
                                     <div class="stat-value" id="stat-total">0</div>
-                                    <div class="stat-label">可导入文件</div>
+                                    <div class="stat-label">照片</div>
                                 </div>
                             </div>
-                            <div class="col-md-3">
+                            <div class="col-6 col-lg">
+                                <div class="stat-card">
+                                    <div class="stat-value" id="stat-video">0</div>
+                                    <div class="stat-label">视频</div>
+                                </div>
+                            </div>
+                            <div class="col-6 col-lg">
                                 <div class="stat-card">
                                     <div class="stat-value" id="stat-raw">0</div>
                                     <div class="stat-label">RAW 文件</div>
                                 </div>
                             </div>
-                            <div class="col-md-3">
+                            <div class="col-6 col-lg">
                                 <div class="stat-card">
                                     <div class="stat-value" id="stat-jpeg">0</div>
                                     <div class="stat-label">JPEG 文件</div>
                                 </div>
                             </div>
-                            <div class="col-md-3">
+                            <div class="col-6 col-lg">
                                 <div class="stat-card">
                                     <div class="stat-value" id="stat-size">0</div>
-                                    <div class="stat-label">总大小 (MB)</div>
+                                    <div class="stat-label">照片大小 (MB)</div>
                                 </div>
                             </div>
                         </div>
@@ -115,6 +121,10 @@
                         <div class="mb-3">
                             <strong>文件类型分布：</strong>
                             <div id="stat-exts" class="mt-2"></div>
+                        </div>
+                        <div class="mb-3" id="video-exts-row">
+                            <strong>视频类型分布：</strong>
+                            <div id="stat-video-exts" class="mt-2"></div>
                         </div>
 
                         <div class="mb-3">
@@ -129,6 +139,21 @@
 
                 <!-- Step 3: Options -->
                 <div id="step-3" class="step-content d-none">
+                    <div class="card border mb-4">
+                        <div class="card-body">
+                            <h6 class="card-title fw-bold"><i class="bi bi-collection-play"></i> 导入内容</h6>
+                            <div class="d-flex gap-2 flex-wrap" role="group">
+                                <input type="radio" class="btn-check" name="media-type" id="mt-photos" value="photos" checked>
+                                <label class="btn btn-outline-primary btn-sm" for="mt-photos">📷 仅照片</label>
+                                <input type="radio" class="btn-check" name="media-type" id="mt-videos" value="videos">
+                                <label class="btn btn-outline-primary btn-sm" for="mt-videos">🎬 仅视频</label>
+                                <input type="radio" class="btn-check" name="media-type" id="mt-both" value="both">
+                                <label class="btn btn-outline-primary btn-sm" for="mt-both">📷🎬 照片和视频</label>
+                            </div>
+                            <p class="small text-muted mt-2 mb-0">视频仅做索引、元数据探测与缩略图生成，<strong>不进行内容识别</strong>；同一文件夹的照片与视频会归入同一次外拍。</p>
+                        </div>
+                    </div>
+
                     <div class="row g-4">
                         <div class="col-md-6">
                             <div class="card border">
@@ -142,10 +167,10 @@
                                 </div>
                             </div>
                         </div>
-                        <div class="col-md-6">
+                        <div class="col-md-6" id="recognition-card">
                             <div class="card border">
                                 <div class="card-body">
-                                    <h6 class="card-title fw-bold"><i class="bi bi-cpu"></i> 识别处理</h6>
+                                    <h6 class="card-title fw-bold"><i class="bi bi-cpu"></i> 识别处理<span class="small text-muted fw-normal">（仅照片）</span></h6>
                                     <div class="form-check form-switch">
                                         <input class="form-check-input" type="checkbox" id="opt-recognition" checked>
                                         <label class="form-check-label" for="opt-recognition">导入后立即运行识别与评分</label>
@@ -213,11 +238,7 @@
 
                     <div class="log-console mb-3" id="log-console"></div>
 
-                    <div id="run-actions" class="d-flex gap-2 d-none">
-                        <a href="/select" class="btn btn-success"><i class="bi bi-check-lg"></i> 前往选片</a>
-                        <a href="/gallery" class="btn btn-primary"><i class="bi bi-images"></i> 前往图库</a>
-                        <a href="/import" class="btn btn-outline-secondary">导入其他目录</a>
-                    </div>
+                    <div id="run-actions" class="d-flex gap-2 d-none"></div>
 
                     <div id="run-error" class="alert alert-danger d-none"></div>
                 </div>
@@ -257,7 +278,8 @@
                 nextBtn.disabled = !document.getElementById('folder-input').value.trim();
             } else if (step === 2) {
                 nextBtn.textContent = '导入选项';
-                nextBtn.disabled = !scanData || scanData.total_files === 0;
+                nextBtn.disabled = !scanData ||
+                    (scanData.total_files === 0 && (scanData.video_files || 0) === 0);
             } else if (step === 3) {
                 nextBtn.textContent = '开始导入';
                 nextBtn.disabled = false;
@@ -338,6 +360,7 @@
 
         function renderScanResult(data) {
             document.getElementById('stat-total').textContent = data.total_files;
+            document.getElementById('stat-video').textContent = data.video_files || 0;
             document.getElementById('stat-raw').textContent = data.raw_files;
             document.getElementById('stat-jpeg').textContent = data.jpeg_files;
             document.getElementById('stat-size').textContent = data.total_size_mb;
@@ -349,6 +372,23 @@
                 badge.className = 'badge bg-secondary me-1 ext-badge';
                 badge.textContent = `${ext.toUpperCase()} ${count}`;
                 extContainer.appendChild(badge);
+            });
+
+            // 根据扫描结果预选媒体类型：只有视频时选"仅视频"，二者都有时选混合
+            if (data.video_files > 0 && data.total_files > 0) {
+                document.getElementById('mt-both').checked = true;
+            } else if (data.video_files > 0) {
+                document.getElementById('mt-videos').checked = true;
+            }
+            updateMediaType();
+
+            const videoExtContainer = document.getElementById('stat-video-exts');
+            videoExtContainer.innerHTML = '';
+            Object.entries(data.video_extensions || {}).forEach(([ext, count]) => {
+                const badge = document.createElement('span');
+                badge.className = 'badge bg-dark me-1 ext-badge';
+                badge.textContent = `${ext.toUpperCase()} ${count}`;
+                videoExtContainer.appendChild(badge);
             });
 
             const sampleContainer = document.getElementById('stat-samples');
@@ -403,6 +443,27 @@
             document.getElementById(id).addEventListener('input', updateLocationTag);
         });
 
+        function currentMediaType() {
+            const checked = document.querySelector('input[name="media-type"]:checked');
+            return checked ? checked.value : 'photos';
+        }
+
+        function updateMediaType() {
+            const mt = currentMediaType();
+            const recognitionCard = document.getElementById('recognition-card');
+            if (mt === 'videos') {
+                // 视频不识别：隐藏识别卡片并强制关闭开关
+                recognitionCard.classList.add('d-none');
+                document.getElementById('opt-recognition').checked = false;
+            } else {
+                recognitionCard.classList.remove('d-none');
+            }
+        }
+
+        document.querySelectorAll('input[name="media-type"]').forEach(el =>
+            el.addEventListener('change', updateMediaType)
+        );
+
         async function startImport() {
             const folder = document.getElementById('folder-input').value.trim();
             const recursive = document.getElementById('opt-recursive').checked;
@@ -423,7 +484,7 @@
                 const res = await fetch('/api/import/start', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ folder, recursive, run_recognition: runRecognition, location_info: locationInfo })
+                    body: JSON.stringify({ folder, recursive, run_recognition: runRecognition, location_info: locationInfo, media_type: currentMediaType() })
                 });
                 const json = await res.json();
                 if (json.status !== 'success') throw new Error(json.detail || '启动失败');
@@ -468,13 +529,34 @@
                         document.getElementById('progress-bar').style.width = '100%';
                         document.getElementById('progress-bar').textContent = '100%';
                         document.getElementById('progress-bar').classList.remove('progress-bar-animated');
-                        document.getElementById('run-actions').classList.remove('d-none');
+                        renderRunActions();
                         if (ws) ws.close();
                     }
                 } catch (e) {
                     console.error('Status poll failed', e);
                 }
             }, 1500);
+        }
+
+        function renderRunActions() {
+            const mt = currentMediaType();
+            const wrap = document.getElementById('run-actions');
+            if (mt === 'videos') {
+                wrap.innerHTML =
+                    '<a href="/videos" class="btn btn-success"><i class="bi bi-film"></i> 前往视频页</a>' +
+                    '<a href="/import" class="btn btn-outline-secondary">导入其他目录</a>';
+            } else if (mt === 'both') {
+                wrap.innerHTML =
+                    '<a href="/videos" class="btn btn-success"><i class="bi bi-film"></i> 视频页</a>' +
+                    '<a href="/gallery" class="btn btn-primary"><i class="bi bi-images"></i> 图库</a>' +
+                    '<a href="/import" class="btn btn-outline-secondary">导入其他目录</a>';
+            } else {
+                wrap.innerHTML =
+                    '<a href="/select" class="btn btn-success"><i class="bi bi-check-lg"></i> 前往选片</a>' +
+                    '<a href="/gallery" class="btn btn-primary"><i class="bi bi-images"></i> 前往图库</a>' +
+                    '<a href="/import" class="btn btn-outline-secondary">导入其他目录</a>';
+            }
+            wrap.classList.remove('d-none');
         }
 
         function updateProgress(processed, total) {

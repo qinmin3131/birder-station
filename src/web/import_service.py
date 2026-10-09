@@ -6,6 +6,7 @@ from collections import Counter
 
 from src.core.indexer import PhotoIndexer, SUPPORTED_FORMATS, RAW_FORMATS
 from src.core.io.path_parser import PathParser
+from src.core.video.indexer import SUPPORTED_VIDEO_FORMATS
 from src.db.repository import PhotoRepository
 
 
@@ -37,16 +38,19 @@ class ImportService:
 
         glob_pattern = "**/*" if recursive else "*"
         files = []
+        video_files = []
         for path in folder_path.glob(glob_pattern):
             if not path.is_file():
                 continue
             ext = path.suffix.lower()
-            if ext not in supported:
-                continue
-            files.append(path)
+            if ext in supported:
+                files.append(path)
+            elif ext in SUPPORTED_VIDEO_FORMATS:
+                video_files.append(path)
 
         total_size = sum(p.stat().st_size for p in files)
         counts = Counter(p.suffix.lower() for p in files)
+        video_counts = Counter(p.suffix.lower() for p in video_files)
 
         # Attempt to parse location from the immediate folder name
         parser = PathParser(str(folder_path))
@@ -68,6 +72,8 @@ class ImportService:
             "raw_files": sum(counts[ext] for ext in raw_formats),
             "jpeg_files": sum(counts[ext] for ext in jpeg_formats),
             "extensions": dict(counts),
+            "video_files": len(video_files),
+            "video_extensions": dict(video_counts),
             "sample_files": [str(p) for p in files[:10]],
             "location": location,
         }
@@ -85,8 +91,14 @@ class ImportService:
             "level3": parsed.get("location_level3"),
         }
 
-    def start_import(self, folder: str, recursive: bool = True, run_recognition: bool = True, overwrite: bool = False, location_info: dict = None) -> dict:
-        """Start the background import task and return the associated outing ID."""
+    def start_import(self, folder: str, recursive: bool = True, run_recognition: bool = True, overwrite: bool = False, location_info: dict = None, media_type: str = "photos") -> dict:
+        """Start the background import task and return the associated outing ID.
+
+        media_type: "photos" (default), "videos", or "both". Videos are indexed
+        and probed but never sent through the recognition pipeline.
+        """
+        if media_type not in ("photos", "videos", "both"):
+            return {"status": "error", "message": f"Invalid media_type: {media_type}"}
         if self.task_manager.is_running:
             return {"status": "error", "message": "Another task is already running"}
 
@@ -97,16 +109,33 @@ class ImportService:
         # Create an outing record up-front so the API can return its ID immediately
         outing_id = self._create_outing(folder_path)
 
-        self.task_manager.start_import(
-            str(folder_path.resolve()),
+        resolved = str(folder_path.resolve())
+        common = dict(
             recursive=recursive,
-            run_recognition=run_recognition,
             overwrite=overwrite,
             config=self.config,
             location_info=location_info,
             outing_id=outing_id,
         )
-        return {"status": "success", "message": "Import started", "outing_id": outing_id}
+        if media_type == "videos":
+            started = self.task_manager.start_video_import(resolved, **common)
+        elif media_type == "both":
+            started = self.task_manager.start_combined_import(
+                resolved, run_recognition=run_recognition, **common
+            )
+        else:
+            started = self.task_manager.start_import(
+                resolved, run_recognition=run_recognition, **common
+            )
+
+        if not started:
+            return {"status": "error", "message": "Another task is already running"}
+        return {
+            "status": "success",
+            "message": "Import started",
+            "outing_id": outing_id,
+            "media_type": media_type,
+        }
 
     def _create_outing(self, folder_path: Path) -> int:
         """Create an Outing record for the import and return its ID."""

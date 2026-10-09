@@ -1,5 +1,68 @@
 # 工作日志 / Worklog
 
+## 2026-10-06 ~ 10-09
+
+### 当日目标
+- 新增视频素材管理功能（T1-T8 全流程实现）
+
+### 已完成
+1. **T1 ffmpeg/ffprobe 封装**
+   - `src/core/video/ffmpeg_tools.py`：probe_video / extract_poster
+   - `requirements.txt` 新增 imageio-ffmpeg 依赖
+   - 10 个单元测试
+
+2. **T2 数据模型、迁移与仓储**
+   - `src/db/models.py`：Video / VideoMarker 模型
+   - `src/db/repository.py`：VideoRepository（CRUD + 多条件查询 + count_videos）
+   - 迁移改为模型驱动（对照 Photo 模型自动补齐缺失列），修复硬编码清单遗漏 primary_bird_cn 等列的 bug
+   - 13 个测试
+
+3. **T3 视频导入后台流程**
+   - `src/core/video/indexer.py`：VideoIndexer（扫描、hash 去重、外拍归属）
+   - `src/web/task_manager.py`：新增 start_video_import / start_combined_import / _probe_videos
+   - `src/web/import_service.py`：start_import 增加 media_type 参数（photos/videos/both）
+   - `src/web/app.py`：/api/import/start 接入 media_type
+   - 12 个测试
+
+4. **T4 流式播放与缩略图**
+   - `src/web/path_helpers.py`：VIDEO_MIME_TYPES / get_video_file_response / get_thumbnail_placeholder_response
+   - `src/web/routes/videos.py`：/api/videos/{id}/stream（Range 206）、/api/videos/{id}/thumbnail
+   - 17 个测试（含 Range 分段、占位图回退）
+
+5. **T5 浏览/详情/标记 CRUD**
+   - `src/web/routes/videos.py`：list / detail / update / markers CRUD
+   - 标记校验：point 需 time、segment 需 in<out、时间不超时长、category 白名单
+   - 修复 marker 排序 NULL 问题（COALESCE(time, in_time)）
+   - 26 个 API 测试
+
+6. **T6 前端页面**
+   - `templates/videos.html`：视频列表（搜索、分页、缩略图卡片）
+   - `templates/video_detail.html`：播放器 + 时间线可视化 + 标记交互 + 导出面板
+   - `templates/navbar.html`：导航栏增加"视频"入口
+   - `templates/import.html`：导入向导增加媒体类型选择（照片/视频/混合）
+   - `app.py`：/videos 与 /videos/{id} 页面路由
+
+7. **T7 时间线导出**
+   - `src/core/video/timeline_export.py`：FCPXML 1.9 / Premiere xmeml v5 / CMX3600 EDL
+   - 两种模式：full（完整素材）/ segments（精选片段）
+   - 单视频级 + 外拍级导出 API
+   - 22 个测试（XML 可解析性、字段正确性、EDL 结构、空片段防护）
+
+### 全量测试
+- 497 passed, 1 skipped（含原有 475 + 新增 22）
+
+### 关键决策
+- 视频与照片共用外拍体系，通过 outing_id 关联
+- 视频仅索引不移动源文件，不进行内容识别
+- 导出格式优先 FCPXML 1.9（兼容性最佳），用标准库 ElementTree 生成
+- 迁移改为模型驱动，一劳永逸解决硬编码列清单遗漏问题
+
+### Pitfalls
+1. SQLite ALTER TABLE 不支持 DEFAULT CURRENT_TIMESTAMP → 旧记录 created_at 留 NULL
+2. JSON 中文标签 LIKE 匹配 → 同时匹配原文与 \uXXXX 转义形式
+3. 迁移索引引用不存在的列 → 模型驱动补齐全部缺失列
+4. marker 排序 NULL 值排最前 → COALESCE(time, in_time) 统一排序键
+
 ## 2026-09-28
 
 ### 当日目标

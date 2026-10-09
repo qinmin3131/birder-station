@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>视频 - 飞羽志 WingScribe</title>
+    <link rel="icon" type="image/x-icon" href="/lib/favicon.ico">
+    <link href="/lib/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.bootcdn.net/ajax/libs/bootstrap-icons/1.11.3/font/bootstrap-icons.min.css">
+    <style>
+        body { background: #f5f6f8; font-size: 14px; }
+        .filter-card { border: 0; border-radius: 12px; box-shadow: 0 4px 24px rgba(0,0,0,0.06); }
+        .video-card { border: 0; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 12px rgba(0,0,0,0.07); transition: transform .15s ease; cursor: pointer; }
+        .video-card:hover { transform: translateY(-3px); }
+        .thumb-wrap { position: relative; aspect-ratio: 16/9; background: #2b2b2b; }
+        .thumb-wrap img { width: 100%; height: 100%; object-fit: cover; }
+        .duration-badge { position: absolute; right: 8px; bottom: 8px; background: rgba(0,0,0,.75); color: #fff; font-size: .78rem; padding: 2px 7px; border-radius: 5px; }
+        .marker-badge { position: absolute; left: 8px; bottom: 8px; background: rgba(102,126,234,.92); color: #fff; font-size: .75rem; padding: 2px 7px; border-radius: 5px; }
+        .failed-badge { position: absolute; left: 8px; top: 8px; background: rgba(220,53,69,.9); color: #fff; font-size: .72rem; padding: 2px 7px; border-radius: 5px; }
+        .video-card .card-body { padding: .7rem .8rem; }
+        .video-filename { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .video-meta { color: #8a9199; font-size: .82rem; }
+    </style>
+</head>
+<body>
+    {% with active_page='videos' %}{% include 'navbar.html' %}{% endwith %}
+
+    <div class="container mt-4 mb-5">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h4 class="mb-0 fw-bold">🎬 视频素材</h4>
+            <a href="/import" class="btn btn-sm btn-primary"><i class="bi bi-cloud-upload"></i> 导入视频</a>
+        </div>
+
+        <div class="filter-card card mb-4">
+            <div class="card-body py-3">
+                <div class="row g-2 align-items-center">
+                    <div class="col-md-6">
+                        <div class="input-group">
+                            <span class="input-group-text bg-white"><i class="bi bi-search"></i></span>
+                            <input type="text" id="q-input" class="form-control" placeholder="搜索文件名、备注、标记内容…" onkeydown="if(event.key==='Enter')searchVideos()">
+                            <button class="btn btn-primary" type="button" onclick="searchVideos()">搜索</button>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <input type="text" id="outing-input" class="form-control" placeholder="外拍 ID（可选）">
+                    </div>
+                    <div class="col-md-3 text-muted small" id="result-summary"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row g-3" id="video-grid"></div>
+
+        <div class="text-center mt-4 d-none" id="load-more-wrap">
+            <button class="btn btn-outline-primary px-4" onclick="loadMore()"><i class="bi bi-arrow-down-circle"></i> 加载更多</button>
+        </div>
+        <div class="text-center text-muted py-5 d-none" id="empty-state">
+            <div style="font-size:3rem;">📼</div>
+            <p class="mt-2 mb-0">还没有视频，去「导入」页添加吧</p>
+        </div>
+    </div>
+
+    <script src="/lib/js/bootstrap.bundle.min.js"></script>
+    <script>
+        const PAGE_SIZE = 24;
+        let offset = 0;
+        let totalLoaded = 0;
+
+        function fmtDuration(s) {
+            if (s == null) return '';
+            const h = Math.floor(s / 3600);
+            const m = Math.floor((s % 3600) / 60);
+            const sec = Math.floor(s % 60);
+            const mm = h ? String(m).padStart(2, '0') : String(m);
+            return (h ? h + ':' : '') + mm + ':' + String(sec).padStart(2, '0');
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text == null ? '' : String(text);
+            return div.innerHTML;
+        }
+
+        function buildParams(reset) {
+            const params = new URLSearchParams({ limit: PAGE_SIZE, offset });
+            const q = document.getElementById('q-input').value.trim();
+            const outing = document.getElementById('outing-input').value.trim();
+            if (q) params.set('q', q);
+            if (outing) params.set('outing_id', outing);
+            return params;
+        }
+
+        async function searchVideos() {
+            offset = 0;
+            totalLoaded = 0;
+            document.getElementById('video-grid').innerHTML = '';
+            await fetchPage();
+        }
+
+        async function loadMore() {
+            await fetchPage();
+        }
+
+        async function fetchPage() {
+            const res = await fetch('/api/videos?' + buildParams());
+            const data = await res.json();
+            renderVideos(data.items);
+            offset += data.items.length;
+            totalLoaded += data.items.length;
+
+            document.getElementById('load-more-wrap').classList.toggle('d-none', !data.has_more);
+            document.getElementById('empty-state').classList.toggle('d-none', totalLoaded > 0);
+            document.getElementById('result-summary').textContent =
+                totalLoaded ? `已加载 ${totalLoaded} 个视频` : '';
+        }
+
+        function renderVideos(items) {
+            const grid = document.getElementById('video-grid');
+            items.forEach(v => {
+                const placeParts = [v.location_level1, v.location_level2, v.location_level3]
+                    .filter(Boolean).join(' · ');
+                const col = document.createElement('div');
+                col.className = 'col-6 col-md-4 col-lg-3 col-xl-2';
+                col.innerHTML = `
+                    <div class="card video-card" onclick="location.href='/videos/${v.id}'">
+                        <div class="thumb-wrap">
+                            <img src="${v.thumbnail_url}" alt="" loading="lazy">
+                            ${v.duration ? `<span class="duration-badge">${fmtDuration(v.duration)}</span>` : ''}
+                            ${v.probe_failed ? '<span class="failed-badge">探测失败</span>' : ''}
+                        </div>
+                        <div class="card-body">
+                            <div class="video-filename" title="${escapeHtml(v.filename)}">${escapeHtml(v.filename)}</div>
+                            <div class="video-meta">${v.captured_date || ''}</div>
+                            <div class="video-meta" title="${escapeHtml(placeParts)}">${escapeHtml(placeParts)}</div>
+                        </div>
+                    </div>`;
+                grid.appendChild(col);
+            });
+        }
+
+        searchVideos();
+    </script>
+</body>
+</html>

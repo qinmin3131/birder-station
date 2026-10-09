@@ -40,6 +40,7 @@ from src.db.models import init_database as init_sqlalchemy_db, Photo, Species, T
 from src.db.repository import PhotoRepository, OutingRepository
 from src.db.stats import refresh_species_for_photo
 from src.web.routes.recognition import router as recognition_router
+from src.web.routes.videos import router as videos_router, init_video_routes
 from src.web import task_manager as task_manager_module
 from src.web.task_manager import TaskManager as ExtractedTaskManager
 from src.web import taxonomy_service
@@ -147,6 +148,7 @@ if processed_dir and not processed_dir.exists():
 
 # Note: Using custom route for /processed (see serve_processed_file above)
 app.include_router(recognition_router)
+app.include_router(videos_router)
 
 # Mount library static files (Bootstrap, icons, etc.) - does not depend on source_dir
 lib_static_dir = BASE_DIR / "src" / "web" / "static"
@@ -182,6 +184,10 @@ def get_sqlalchemy_session():
     """Create a SQLAlchemy session bound to the configured database."""
     engine = create_engine(f"sqlite:///{db_path}")
     return sessionmaker(bind=engine)()
+
+
+# Bind video routes to the configured database session factory
+init_video_routes(get_sqlalchemy_session)
 
 
 def resolve_web_path(original_path_str: str) -> Optional[str]:
@@ -1674,27 +1680,47 @@ async def import_browse_folder():
 
 @app.post("/api/import/start")
 async def import_start(data: dict):
-    """启动照片导入任务（索引 + 可选识别）。"""
+    """启动导入任务（索引 + 可选识别），支持照片/视频/混合三种模式。"""
     folder = data.get("folder", "")
     recursive = data.get("recursive", True)
     run_recognition = data.get("run_recognition", True)
     overwrite = data.get("overwrite", False)
     location_info = data.get("location_info", None)
+    media_type = data.get("media_type", "photos")
     if not folder:
         raise HTTPException(status_code=400, detail="请提供文件夹路径")
 
     result = import_service_instance.start_import(
-        folder, recursive=recursive, run_recognition=run_recognition, overwrite=overwrite, location_info=location_info
+        folder, recursive=recursive, run_recognition=run_recognition, overwrite=overwrite, location_info=location_info, media_type=media_type
     )
     if result.get("status") == "error":
         raise HTTPException(status_code=409, detail=result["message"])
-    return {"status": "success", "message": "Import started", "outing_id": result.get("outing_id")}
+    return {
+        "status": "success",
+        "message": "Import started",
+        "outing_id": result.get("outing_id"),
+        "media_type": result.get("media_type", media_type),
+    }
 
 
 @app.get("/api/import/status")
 async def import_status():
     """返回当前导入任务状态。"""
     return import_service_instance.get_status()
+
+
+@app.get("/videos", response_class=HTMLResponse)
+def videos_page(request: Request):
+    """视频素材列表页。"""
+    return templates.TemplateResponse(request, "videos.html", {"request": request})
+
+
+@app.get("/videos/{video_id}", response_class=HTMLResponse)
+def video_detail_page(request: Request, video_id: int):
+    """视频详情/播放/时间线标记页（数据由前端经 API 加载）。"""
+    return templates.TemplateResponse(
+        request, "video_detail.html", {"request": request, "video_id": video_id}
+    )
 
 
 @app.get("/gallery", response_class=HTMLResponse)

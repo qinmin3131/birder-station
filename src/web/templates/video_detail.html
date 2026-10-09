@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>视频详情 - 飞羽志 WingScribe</title>
+    <link rel="icon" type="image/x-icon" href="/lib/favicon.ico">
+    <link href="/lib/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.bootcdn.net/ajax/libs/bootstrap-icons/1.11.3/font/bootstrap-icons.min.css">
+    <style>
+        body { background: #f5f6f8; font-size: 14px; }
+        .panel-card { border: 0; border-radius: 12px; box-shadow: 0 4px 24px rgba(0,0,0,0.06); }
+        video { width: 100%; background: #000; border-radius: 10px; max-height: 70vh; }
+        .timeline-track { position: relative; height: 46px; background: #eef0f4; border-radius: 8px; cursor: pointer; overflow: hidden; }
+        .timeline-tick { position: absolute; top: 0; bottom: 0; border-left: 1px solid rgba(0,0,0,.06); }
+        .seg-mark { position: absolute; top: 8px; height: 22px; border-radius: 4px; opacity: .9; font-size: .68rem; color: #fff; overflow: hidden; white-space: nowrap; padding: 1px 4px; }
+        .point-mark { position: absolute; top: 0; width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-top: 10px solid #e83e8c; transform: translateX(-6px); }
+        #playhead { position: absolute; top: 0; bottom: 0; width: 2px; background: #0d6efd; pointer-events: none; }
+        .cat-可用 { background: #198754; }
+        .cat-采访 { background: #0d6efd; }
+        .cat-B-roll { background: #f0ad4e; }
+        .cat-弃用 { background: #6c757d; }
+        .marker-row input[type=text] { border: 1px solid transparent; background: transparent; }
+        .marker-row input[type=text]:hover, .marker-row input[type=text]:focus { border-color: #ced4da; background: #fff; }
+        .time-link { color: #0d6efd; cursor: pointer; font-variant-numeric: tabular-nums; white-space: nowrap; }
+        .meta-row { display: flex; justify-content: space-between; padding: .3rem 0; border-bottom: 1px dashed #eef0f3; }
+        .meta-row .meta-k { color: #8a9199; }
+    </style>
+</head>
+<body>
+    {% with active_page='videos' %}{% include 'navbar.html' %}{% endwith %}
+
+    <div class="container mt-4 mb-5">
+        <a href="/videos" class="btn btn-sm btn-outline-secondary mb-3"><i class="bi bi-arrow-left"></i> 返回视频列表</a>
+
+        <div id="hevc-warning" class="alert alert-warning d-none py-2 small">
+            <i class="bi bi-exclamation-triangle"></i>
+            该视频为 <strong>H.265/HEVC</strong> 编码，Chrome 可能无法播放，建议使用 Edge / Safari，或下载后用系统播放器打开。
+        </div>
+        <div id="play-error" class="alert alert-danger d-none py-2 small"></div>
+
+        <div class="row g-4">
+            <!-- 左：播放器与时间线 -->
+            <div class="col-lg-8">
+                <video id="player" controls preload="metadata" playsinline></video>
+
+                <div class="panel-card card mt-3">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between small text-muted mb-2">
+                            <span><i class="bi bi-clock"></i> <span id="cur-time">00:00</span> / <span id="dur-time">--:--</span></span>
+                            <a id="download-link" href="#" download class="small"><i class="bi bi-download"></i> 下载原文件</a>
+                        </div>
+                        <div class="timeline-track" id="timeline">
+                            <div id="playhead"></div>
+                        </div>
+                        <div id="timeline-hint" class="small text-muted mt-2 d-none">视频时长未知，时间线标记位置暂不可视化，但标记仍可正常创建。</div>
+
+                        <!-- 标记操作 -->
+                        <div class="row g-2 mt-2">
+                            <div class="col-12">
+                                <input type="text" id="marker-value" class="form-control form-control-sm" placeholder="标记备注（可选），如：苍鹭起飞 / 采访开始">
+                            </div>
+                            <div class="col-12 d-flex flex-wrap gap-2 align-items-center">
+                                <button class="btn btn-sm btn-pink" style="background:#e83e8c;color:#fff;" onclick="addPoint()">
+                                    <i class="bi bi-geo-fill"></i> 在当前位置打点
+                                </button>
+                                <span class="text-muted small mx-1">|</span>
+                                <button class="btn btn-sm btn-outline-primary" onclick="setIn()">入点 <span id="in-label" class="text-muted">--</span></button>
+                                <button class="btn btn-sm btn-outline-primary" onclick="setOut()">出点 <span id="out-label" class="text-muted">--</span></button>
+                                <select id="new-cat" class="form-select form-select-sm" style="width:auto;">
+                                    <option>可用</option><option>采访</option><option>B-roll</option><option>弃用</option>
+                                </select>
+                                <button class="btn btn-sm btn-success" onclick="createSegment()"><i class="bi bi-scissors"></i> 创建片段</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 标记列表 -->
+                <div class="panel-card card mt-3">
+                    <div class="card-body">
+                        <h6 class="fw-bold mb-3"><i class="bi bi-list-ul"></i> 时间线标记 <span class="badge bg-secondary" id="marker-count">0</span></h6>
+                        <div id="marker-list"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 右：信息 -->
+            <div class="col-lg-4">
+                <div class="panel-card card">
+                    <div class="card-body">
+                        <h6 class="fw-bold mb-2" id="v-filename"></h6>
+                        <div class="meta-row"><span class="meta-k">拍摄日期</span><span id="m-date"></span></div>
+                        <div class="meta-row"><span class="meta-k">地点</span><span id="m-location"></span></div>
+                        <div class="meta-row"><span class="meta-k">视频编码</span><span id="m-vcodec"></span></div>
+                        <div class="meta-row"><span class="meta-k">音频编码</span><span id="m-acodec"></span></div>
+                        <div class="meta-row"><span class="meta-k">分辨率</span><span id="m-resolution"></span></div>
+                        <div class="meta-row"><span class="meta-k">帧率</span><span id="m-fps"></span></div>
+                        <div class="meta-row"><span class="meta-k">外拍</span><span id="m-outing"></span></div>
+                        <div class="mt-2 small text-muted word-break" id="m-path"></div>
+                    </div>
+                </div>
+
+                <div class="panel-card card mt-3">
+                    <div class="card-body">
+                        <label class="form-label small fw-bold mb-1">整体备注</label>
+                        <textarea id="note-input" class="form-control form-control-sm" rows="3" placeholder="关于整段视频的备注…" onchange="saveNote()"></textarea>
+                        <label class="form-label small fw-bold mt-3 mb-1">标签（逗号分隔）</label>
+                        <input type="text" id="tags-input" class="form-control form-control-sm" onchange="saveTags()">
+                    </div>
+                </div>
+
+                <div class="panel-card card mt-3">
+                    <div class="card-body">
+                        <h6 class="fw-bold mb-2"><i class="bi bi-rocket-takeoff"></i> 剪辑准备导出</h6>
+                        <div class="mb-2">
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="radio" name="exp-mode" id="exp-full" value="full" checked>
+                                <label class="form-check-label small" for="exp-full">完整素材</label>
+                            </div>
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="radio" name="exp-mode" id="exp-seg" value="segments">
+                                <label class="form-check-label small" for="exp-seg">精选片段</label>
+                            </div>
+                        </div>
+                        <div id="export-area" class="d-grid gap-2">
+                            <button class="btn btn-sm btn-outline-primary" onclick="exportTimeline('fcpxml')"><i class="bi bi-file-code"></i> FCPXML</button>
+                            <button class="btn btn-sm btn-outline-primary" onclick="exportTimeline('premiere')"><i class="bi bi-file-code"></i> Premiere XML</button>
+                            <button class="btn btn-sm btn-outline-secondary" onclick="exportTimeline('edl')"><i class="bi bi-file-text"></i> EDL</button>
+                        </div>
+                        <div id="export-hint" class="small text-muted mt-2"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/lib/js/bootstrap.bundle.min.js"></script>
+    <script>
+        const videoId = parseInt(location.pathname.split('/').pop());
+        const player = document.getElementById('player');
+        let videoData = null;
+        let pendingIn = null;
+        let pendingOut = null;
+
+        function fmtTime(s) {
+            if (s == null) return '--:--';
+            const h = Math.floor(s / 3600);
+            const m = Math.floor((s % 3600) / 60);
+            const sec = Math.floor(s % 60);
+            const mm = h ? String(m).padStart(2, '0') : String(m).padStart(2, '0');
+            return (h ? h + ':' : '') + mm + ':' + String(sec).padStart(2, '0');
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text == null ? '' : String(text);
+            return div.innerHTML;
+        }
+
+        async function loadVideo() {
+            const res = await fetch(`/api/videos/${videoId}`);
+            if (res.status === 404) {
+                document.getElementById('play-error').textContent = '视频不存在';
+                document.getElementById('play-error').classList.remove('d-none');
+                return;
+            }
+            videoData = await res.json();
+            renderAll();
+        }
+
+        function renderAll() {
+            const v = videoData;
+            document.title = v.filename + ' - 飞羽志';
+            document.getElementById('v-filename').textContent = v.filename;
+            player.src = v.stream_url;
+            document.getElementById('download-link').href = v.stream_url;
+
+            document.getElementById('m-date').textContent = v.captured_date || '—';
+            const placeParts = [v.location_level1, v.location_level2, v.location_level3].filter(Boolean).join(' · ');
+            document.getElementById('m-location').textContent = placeParts || '—';
+            document.getElementById('m-vcodec').textContent = v.video_codec || '—';
+            document.getElementById('m-acodec').textContent = v.audio_codec || '—';
+            document.getElementById('m-resolution').textContent =
+                v.width && v.height ? `${v.width}×${v.height}` : '—';
+            document.getElementById('m-fps').textContent = v.fps ? v.fps.toFixed(2) : '—';
+            document.getElementById('m-outing').textContent =
+                v.outing_id ? `#${v.outing_id}` : '—';
+            document.getElementById('m-path').textContent = v.file_path;
+
+            document.getElementById('note-input').value = v.note || '';
+            document.getElementById('tags-input').value = (v.tags || []).join(', ');
+
+            if (v.video_codec === 'hevc') {
+                document.getElementById('hevc-warning').classList.remove('d-none');
+            }
+
+            document.getElementById('dur-time').textContent = fmtTime(v.duration);
+            document.getElementById('timeline-hint').classList.toggle('d-none', !!v.duration);
+            renderTimeline();
+            renderMarkerList();
+        }
+
+        // -- 时间线可视化 -----------------------------------------------------
+
+        function renderTimeline() {
+            const track = document.getElementById('timeline');
+            track.querySelectorAll('.timeline-tick,.seg-mark,.point-mark').forEach(el => el.remove());
+            const duration = videoData.duration;
+            if (!duration) return;
+
+            // 刻度线（每秒一条太密，按 10% 间隔）
+            for (let i = 1; i < 10; i++) {
+                const tick = document.createElement('div');
+                tick.className = 'timeline-tick';
+                tick.style.left = (i * 10) + '%';
+                track.appendChild(tick);
+            }
+
+            videoData.markers.forEach(m => {
+                if (m.kind === 'segment') {
+                    const el = document.createElement('div');
+                    el.className = `seg-mark cat-${m.category || '可用'}`;
+                    el.style.left = (m.in_time / duration * 100) + '%';
+                    el.style.width = ((m.out_time - m.in_time) / duration * 100) + '%';
+                    el.title = `${m.category || ''} ${fmtTime(m.in_time)}-${fmtTime(m.out_time)} ${m.value || ''}`;
+                    el.textContent = m.value || m.category || '';
+                    el.onclick = (e) => { e.stopPropagation(); seekTo(m.in_time); };
+                    track.appendChild(el);
+                } else {
+                    const el = document.createElement('div');
+                    el.className = 'point-mark';
+                    el.style.left = (m.time / duration * 100) + '%';
+                    el.title = `${fmtTime(m.time)} ${m.value || ''}`;
+                    el.onclick = (e) => { e.stopPropagation(); seekTo(m.time); };
+                    track.appendChild(el);
+                }
+            });
+        }
+
+        function timelineClick(event) {
+            if (!videoData.duration) return;
+            const rect = event.currentTarget.getBoundingClientRect();
+            const ratio = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
+            seekTo(ratio * videoData.duration);
+        }
+
+        function seekTo(t) {
+            player.currentTime = t;
+            player.play().catch(() => {});
+        }
+
+        player.addEventListener('timeupdate', () => {
+            document.getElementById('cur-time').textContent = fmtTime(player.currentTime);
+            if (videoData && videoData.duration) {
+                document.getElementById('playhead').style.left =
+                    (player.currentTime / videoData.duration * 100) + '%';
+            }
+        });
+
+        player.addEventListener('error', () => {
+            if (!player.currentSrc) return;
+            const el = document.getElementById('play-error');
+            el.innerHTML = '浏览器无法解码此视频。可尝试 Edge / Safari，或 <a href="' + videoData.stream_url + '" download>下载</a> 后使用系统播放器。';
+            el.classList.remove('d-none');
+        });
+
+        // -- 创建标记 ---------------------------------------------------------
+
+        async function addPoint() {
+            const t = player.currentTime;
+            if (!t && t !== 0) return;
+            const res = await fetch(`/api/videos/${videoId}/markers`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ kind: 'point', time: Number(t.toFixed(3)), value: markerValue() }),
+            });
+            await handleMarkerResponse(res);
+        }
+
+        function setIn() {
+            pendingIn = Number(player.currentTime.toFixed(3));
+            document.getElementById('in-label').textContent = fmtTime(pendingIn);
+        }
+
+        function setOut() {
+            pendingOut = Number(player.currentTime.toFixed(3));
+            document.getElementById('out-label').textContent = fmtTime(pendingOut);
+        }
+
+        async function createSegment() {
+            if (pendingIn == null || pendingOut == null) {
+                alert('请先设置入点和出点');
+                return;
+            }
+            const res = await fetch(`/api/videos/${videoId}/markers`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    kind: 'segment',
+                    in_time: Math.min(pendingIn, pendingOut),
+                    out_time: Math.max(pendingIn, pendingOut),
+                    category: document.getElementById('new-cat').value,
+                    value: markerValue(),
+                }),
+            });
+            pendingIn = pendingOut = null;
+            document.getElementById('in-label').textContent = '--';
+            document.getElementById('out-label').textContent = '--';
+            await handleMarkerResponse(res);
+        }
+
+        function markerValue() {
+            const el = document.getElementById('marker-value');
+            const val = el.value.trim();
+            el.value = '';
+            return val || null;
+        }
+
+        async function handleMarkerResponse(res) {
+            if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                alert(data.detail || '标记创建失败');
+                return;
+            }
+            await loadVideo();
+        }
+
+        // -- 标记列表 ---------------------------------------------------------
+
+        function renderMarkerList() {
+            const container = document.getElementById('marker-list');
+            const markers = videoData.markers;
+            document.getElementById('marker-count').textContent = markers.length;
+            if (!markers.length) {
+                container.innerHTML = '<div class="text-muted small">暂无标记</div>';
+                return;
+            }
+
+            container.innerHTML = markers.map(m => {
+                const timeCell = m.kind === 'point'
+                    ? `<span class="time-link" onclick="seekTo(${m.time})">${fmtTime(m.time)}</span>`
+                    : `<span class="time-link" onclick="seekTo(${m.in_time})">${fmtTime(m.in_time)}–${fmtTime(m.out_time)}</span>`;
+                const catCell = m.kind === 'segment'
+                    ? `<select class="form-select form-select-sm" style="width:auto;" onchange="patchMarker(${m.id}, {category: this.value}, this)">
+                        ${['可用', '采访', 'B-roll', '弃用'].map(c =>
+                            `<option ${m.category === c ? 'selected' : ''}>${c}</option>`).join('')}
+                      </select>`
+                    : '<span class="badge bg-pink" style="background:#e83e8c;">点</span>';
+                return `
+                <div class="marker-row d-flex align-items-center gap-2 py-1 border-bottom">
+                    ${timeCell}
+                    ${catCell}
+                    <input type="text" class="form-control form-control-sm flex-grow-1"
+                        value="${escapeHtml(m.value || '')}" placeholder="备注…"
+                        onchange="patchMarker(${m.id}, {value: this.value}, this)">
+                    <div class="form-check mb-0">
+                        <input class="form-check-input" type="checkbox" title="完成"
+                            ${m.completed ? 'checked' : ''}
+                            onchange="patchMarker(${m.id}, {completed: this.checked}, this)">
+                    </div>
+                    <button class="btn btn-sm btn-link text-danger p-0" title="删除"
+                        onclick="removeMarker(${m.id})"><i class="bi bi-trash"></i></button>
+                </div>`;
+            }).join('');
+        }
+
+        async function patchMarker(id, fields, sourceEl) {
+            const res = await fetch(`/api/videos/markers/${id}`, {
+                method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(fields),
+            });
+            if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                alert(data.detail || '保存失败');
+                await loadVideo();
+                return;
+            }
+            await loadVideo();
+        }
+
+        async function removeMarker(id) {
+            if (!confirm('确定删除该标记？')) return;
+            const res = await fetch(`/api/videos/markers/${id}`, { method: 'DELETE' });
+            if (res.ok) await loadVideo();
+        }
+
+        // -- 备注与标签 -------------------------------------------------------
+
+        async function saveNote() {
+            await fetch(`/api/videos/${videoId}`, {
+                method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ note: document.getElementById('note-input').value }),
+            });
+        }
+
+        async function saveTags() {
+            const tags = document.getElementById('tags-input').value
+                .split(',').map(t => t.trim()).filter(Boolean);
+            const res = await fetch(`/api/videos/${videoId}`, {
+                method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ tags }),
+            });
+            if (res.ok) await loadVideo();
+        }
+
+        loadVideo();
+
+        async function exportTimeline(fmt) {
+            const mode = document.querySelector('input[name="exp-mode"]:checked').value;
+            const hint = document.getElementById('export-hint');
+            hint.textContent = '正在生成导出文件...';
+            try {
+                const res = await fetch(`/api/videos/${videoId}/export`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ fmt, mode, download: true }),
+                });
+                if (!res.ok) {
+                    const data = await res.json().catch(() => ({}));
+                    hint.textContent = data.detail || '导出失败';
+                    return;
+                }
+                const blob = await res.blob();
+                const cd = res.headers.get('Content-Disposition') || '';
+                const m = cd.match(/filename="(.+)"/);
+                const filename = m ? m[1] : `export.${fmt === 'edl' ? 'edl' : 'xml'}`;
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = filename;
+                a.click();
+                URL.revokeObjectURL(a.href);
+                hint.textContent = `已导出 ${filename}`;
+            } catch (e) {
+                hint.textContent = '导出失败：' + e.message;
+            }
+        }
+    </script>
+</body>
+</html>

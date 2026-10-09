@@ -38,9 +38,20 @@ def test_init_database_adds_missing_columns_and_tables():
     assert not inspector.has_table("species")
     assert not inspector.has_table("outings")
     assert not inspector.has_table("photo_groups")
+    assert not inspector.has_table("videos")
+    assert not inspector.has_table("video_markers")
 
     old_columns = {c["name"] for c in inspector.get_columns("photos")}
     assert "captured_at" not in old_columns
+
+    # Existing photo data must survive migration
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO photos (id, file_path, filename) "
+                "VALUES (1, '/data/a.jpg', 'a.jpg')"
+            )
+        )
 
     init_database(engine)
 
@@ -48,12 +59,20 @@ def test_init_database_adds_missing_columns_and_tables():
     assert inspector.has_table("species")
     assert inspector.has_table("outings")
     assert inspector.has_table("photo_groups")
+    assert inspector.has_table("videos")
+    assert inspector.has_table("video_markers")
 
     new_columns = {c["name"] for c in inspector.get_columns("photos")}
     assert "captured_at" in new_columns
     assert "is_selected" in new_columns
     assert "quality_score" in new_columns
     assert "created_at" in new_columns
+
+    with engine.connect() as conn:
+        row = conn.execute(
+            text("SELECT file_path, filename FROM photos WHERE id = 1")
+        ).fetchone()
+    assert row is not None and row[1] == "a.jpg"
 
 
 def test_init_database_creates_new_schema_when_empty():
@@ -66,3 +85,16 @@ def test_init_database_creates_new_schema_when_empty():
     assert inspector.has_table("species")
     assert inspector.has_table("outings")
     assert inspector.has_table("photo_groups")
+    assert inspector.has_table("videos")
+    assert inspector.has_table("video_markers")
+
+
+def test_init_database_is_idempotent():
+    """Running init_database twice must not error or duplicate data."""
+    engine = create_engine("sqlite:///:memory:")
+    init_database(engine)
+    init_database(engine)
+
+    inspector = inspect(engine)
+    assert inspector.has_table("videos")
+    assert inspector.has_table("video_markers")

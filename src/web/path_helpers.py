@@ -13,6 +13,54 @@ logger = logging.getLogger(__name__)
 
 SUPPORTED_RAW_EXTENSIONS = ('.orf', '.nef', '.cr2', '.cr3', '.arw', '.dng', '.rw2', '.pef', '.raf')
 
+VIDEO_MIME_TYPES = {
+    '.mov': 'video/quicktime',
+    '.mp4': 'video/mp4',
+    '.m4v': 'video/x-m4v',
+    '.avi': 'video/x-msvideo',
+    '.mkv': 'video/x-matroska',
+    '.mts': 'video/mp2t',
+    '.m2ts': 'video/mp2t',
+    '.wmv': 'video/x-ms-wmv',
+    '.3gp': 'video/3gpp',
+}
+
+
+def get_video_mime(file_path: str) -> str:
+    """Return the MIME type for a video file; fall back to mimetypes guess."""
+    mime = VIDEO_MIME_TYPES.get(Path(file_path).suffix.lower())
+    if mime:
+        return mime
+    import mimetypes
+    guessed, _ = mimetypes.guess_type(file_path)
+    return guessed or 'application/octet-stream'
+
+
+def get_video_file_response(file_path: str):
+    """Return a FileResponse for a video with explicit MIME type.
+
+    Starlette's FileResponse honors HTTP Range requests (206 Partial Content),
+    which enables seeking/progress-drag in the browser <video> player.
+    """
+    path = Path(file_path)
+    if not path.exists() or not path.is_file():
+        raise HTTPException(
+            status_code=404, detail=f"Video file not found: {path.name}"
+        )
+    return FileResponse(path, media_type=get_video_mime(file_path))
+
+
+def get_thumbnail_placeholder_response() -> Response:
+    """Inline SVG placeholder shown when a video has no extracted thumbnail."""
+    svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180">'
+        '<rect width="100%" height="100%" fill="#2b2b2b"/>'
+        '<polygon points="138,62 138,118 188,90" fill="#8a8a8a"/>'
+        '<text x="50%" y="152" fill="#aaaaaa" font-family="sans-serif" '
+        'font-size="14" text-anchor="middle">暂无缩略图</text></svg>'
+    )
+    return Response(content=svg, media_type="image/svg+xml")
+
 
 def is_raw_file(file_path: str) -> bool:
     """Check if file is a supported RAW format."""

@@ -20,6 +20,7 @@ open-clip-torch
 httpx
 pydantic
 send2trash>=1.8.0
+imageio-ffmpeg>=0.5.1
 
 # Testing
 pytest>=7.0.0
